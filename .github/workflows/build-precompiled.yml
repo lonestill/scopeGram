@@ -20,7 +20,7 @@ jobs:
 
       - name: Install build tools
         run: |
-          brew install cmake ninja meson nasm yasm openssl@1.1 zlib autoconf libtool automake pkg-config
+          brew install cmake ninja meson nasm yasm openssl@3 zlib autoconf libtool automake pkg-config
 
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
