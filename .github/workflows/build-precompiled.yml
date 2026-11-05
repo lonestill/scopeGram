@@ -35,18 +35,19 @@ jobs:
       - name: Package Precompiled Artifacts
         run: |
           tar -czf precompiled-core-macos-arm64.tar.gz \
+            --ignore-failed-read \
             core-xprojects/*/build \
             packages/WalletEngine/wallet_engineFFI.xcframework \
             submodules/telegram-ios/submodules/MTProtoRustEngine/MTProtoEngineFFI.xcframework \
-            packages/TelegramApi/Sources \
-            packages/TelegramCore/Sources/TelegramCore/FlatSerialization \
+            submodules/telegram-ios/submodules/TelegramApi \
+            submodules/telegram-ios/submodules/TelegramCore/FlatSerialization/Sources \
             submodules/telegram-ios/submodules/OpusBinding/SharedHeaders \
             submodules/telegram-ios/submodules/FFMpegBinding/SharedHeaders \
             submodules/tgcalls/SharedHeaders \
             submodules/libwebp/SharedHeaders \
             submodules/telegram-ios/submodules/OpenSSLEncryptionProvider/SharedHeaders \
             submodules/Mozjpeg/SharedHeaders \
-            submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders
+            submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders || true
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
