@@ -1,0 +1,66 @@
+name: Build Precompiled Frameworks
+
+on:
+  workflow_dispatch:
+    inputs:
+      release_tag:
+        description: 'Release tag to attach tarball to'
+        required: false
+        default: 'precompiled-latest'
+
+jobs:
+  build-arm64:
+    runs-on: macos-14
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Install build tools
+        run: |
+          brew install cmake ninja meson nasm yasm openssl@1.1 zlib autoconf libtool automake pkg-config
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build Core Frameworks
+        env:
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+        run: |
+          sh scripts/setup_build_env.sh --build
+
+      - name: Package Precompiled Artifacts
+        run: |
+          tar -czf precompiled-core-macos-arm64.tar.gz \
+            core-xprojects/*/build \
+            packages/WalletEngine/wallet_engineFFI.xcframework \
+            submodules/telegram-ios/submodules/MTProtoRustEngine/MTProtoEngineFFI.xcframework \
+            packages/TelegramApi/Sources \
+            packages/TelegramCore/Sources/TelegramCore/FlatSerialization \
+            submodules/telegram-ios/submodules/OpusBinding/SharedHeaders \
+            submodules/telegram-ios/submodules/FFMpegBinding/SharedHeaders \
+            submodules/tgcalls/SharedHeaders \
+            submodules/libwebp/SharedHeaders \
+            submodules/telegram-ios/submodules/OpenSSLEncryptionProvider/SharedHeaders \
+            submodules/Mozjpeg/SharedHeaders \
+            submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: precompiled-core-macos-arm64
+          path: precompiled-core-macos-arm64.tar.gz
+
+      - name: Publish GitHub Release
+        if: github.event.inputs.release_tag != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh release create "${{ github.event.inputs.release_tag }}" precompiled-core-macos-arm64.tar.gz \
+            --title "Precompiled Core Frameworks (${{ github.event.inputs.release_tag }})" \
+            --notes "Precompiled C/C++/Rust static frameworks and headers for telegram-macos (arm64). Extract into repository root to bypass configure_frameworks.sh build time." \
+            --prerelease || \
+          gh release upload "${{ github.event.inputs.release_tag }}" precompiled-core-macos-arm64.tar.gz --clobber
