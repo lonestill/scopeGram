@@ -10,7 +10,8 @@ on:
 
 jobs:
   build-arm64:
-    runs-on: macos-latest
+    runs-on: macos-14
+    timeout-minutes: 180
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -34,20 +35,51 @@ jobs:
 
       - name: Package Precompiled Artifacts
         run: |
-          tar -czf precompiled-core-macos-arm64.tar.gz \
-            --ignore-failed-read \
-            core-xprojects/*/build \
-            packages/WalletEngine/wallet_engineFFI.xcframework \
-            submodules/telegram-ios/submodules/MTProtoRustEngine/MTProtoEngineFFI.xcframework \
-            submodules/telegram-ios/submodules/TelegramApi \
-            submodules/telegram-ios/submodules/TelegramCore/FlatSerialization/Sources \
-            submodules/telegram-ios/submodules/OpusBinding/SharedHeaders \
-            submodules/telegram-ios/submodules/FFMpegBinding/SharedHeaders \
-            submodules/tgcalls/SharedHeaders \
-            submodules/libwebp/SharedHeaders \
-            submodules/telegram-ios/submodules/OpenSSLEncryptionProvider/SharedHeaders \
-            submodules/Mozjpeg/SharedHeaders \
-            submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders || true
+          python3 - <<'EOF'
+          import os
+          import tarfile
+
+          targets = [
+              "core-xprojects/OpenH264/build",
+              "core-xprojects/OpenSSLEncryption/build",
+              "core-xprojects/OpenSSL/build",
+              "core-xprojects/openssl/build",
+              "core-xprojects/libopus/build",
+              "core-xprojects/libvpx/build",
+              "core-xprojects/mozjpeg/build",
+              "core-xprojects/Mozjpeg/build",
+              "core-xprojects/libwebp/build",
+              "core-xprojects/dav1d/build",
+              "core-xprojects/ffmpeg/build",
+              "core-xprojects/webrtc/build",
+              "core-xprojects/tde2e/build",
+              "core-xprojects/wallet-engine/build",
+              "core-xprojects/mtproto-engine/build",
+              "packages/WalletEngine/wallet_engineFFI.xcframework",
+              "submodules/telegram-ios/submodules/MTProtoRustEngine/MTProtoEngineFFI.xcframework",
+              "submodules/telegram-ios/submodules/TelegramApi",
+              "submodules/telegram-ios/submodules/TelegramCore/FlatSerialization/Sources",
+              "submodules/telegram-ios/submodules/OpusBinding/SharedHeaders",
+              "submodules/telegram-ios/submodules/FFMpegBinding/SharedHeaders",
+              "submodules/tgcalls/SharedHeaders",
+              "submodules/libwebp/SharedHeaders",
+              "submodules/telegram-ios/submodules/OpenSSLEncryptionProvider/SharedHeaders",
+              "submodules/Mozjpeg/SharedHeaders",
+              "submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders"
+          ]
+
+          archive_name = "precompiled-core-macos-arm64.tar.gz"
+          print(f"Creating {archive_name}...")
+          with tarfile.open(archive_name, "w:gz") as tar:
+              for t in targets:
+                  if os.path.exists(t):
+                      print(f"  + Adding {t}")
+                      tar.add(t)
+                  else:
+                      print(f"  - Skipping {t} (not found)")
+
+          print("Packaging complete! Archive size:", os.path.getsize(archive_name))
+          EOF
 
       - name: Upload Artifact
         uses: actions/upload-artifact@v4
