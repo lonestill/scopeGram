@@ -4745,6 +4745,18 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
         chatInteraction.sendMessage = { [weak self] silent, atDate, messageEffect in
             if customChatContents != nil {
             }
+            if let strongSelf = self,
+               let fakePayload = parseChatFakeCommand(strongSelf.chatInteraction.presentation.effectiveInput.inputText) {
+                strongSelf.chatInteraction.updateInput(with: "")
+                insertFakeServiceMessage(
+                    context: strongSelf.context,
+                    currentPeerId: strongSelf.chatInteraction.peerId,
+                    threadId: strongSelf.chatInteraction.chatLocation.threadId,
+                    navigation: strongSelf.navigationController,
+                    payload: fakePayload
+                )
+                return
+            }
             #if DEBUG
             if let strongSelf = self,
                isChatSyntheticButtonsCommand(strongSelf.chatInteraction.presentation.effectiveInput.inputText) {
