@@ -88,7 +88,19 @@ public func ScopegramSettingsController(context: any AccountContextProtocol) -> 
             viewType: .firstItem
         )),
         
-        .general(sectionId: 1, index: 9, value: .none, error: nil, identifier: InputDataIdentifier("scopegram_check_updates"), data: .init(
+        .general(sectionId: 1, index: 9, value: .none, error: nil, identifier: InputDataIdentifier("scopegram_github"), data: .init(
+            name: "GitHub Repository",
+            color: theme.colors.text,
+            type: .nextContext("lonestill/scopeGram"),
+            viewType: .innerItem,
+            action: {
+                if let url = URL(string: "https://github.com/lonestill/scopeGram") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        )),
+        
+        .general(sectionId: 1, index: 10, value: .none, error: nil, identifier: InputDataIdentifier("scopegram_check_updates"), data: .init(
             name: "Check for Updates",
             color: theme.colors.accent,
             type: .next,
@@ -98,7 +110,7 @@ public func ScopegramSettingsController(context: any AccountContextProtocol) -> 
             }
         )),
         
-        .desc(sectionId: 1, index: 10, text: .plain("Direct GitHub Releases updater with native in-app download and verified DMG mounting. Zero external trackers."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)),
+        .desc(sectionId: 1, index: 11, text: .plain("Direct GitHub Releases updater with native in-app download and verified DMG mounting. Zero external trackers."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)),
         
         .sectionId(2, type: .normal)
     ]
