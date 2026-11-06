@@ -8,6 +8,9 @@ public func messageForForwarding(_ message: Message) -> Message {
 
 public extension Message {
     func isCopyProtected(cachedData: CachedPeerData?) -> Bool {
+        if UserDefaults.standard.bool(forKey: "scopegram.allowCopyRestricted") {
+            return false
+        }
         if self.isCopyProtected() {
             return true
         }

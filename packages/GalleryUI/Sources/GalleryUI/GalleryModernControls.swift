@@ -281,7 +281,9 @@ public class GalleryModernControlsView: View {
                 }
             }
         case let .message(message):
-            let cantSave = message.message?.containsSecretMedia == true || message.message?.isCopyProtected() == true
+            let isSecretAllowed = UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia") || UserDefaults.standard.bool(forKey: "scopegram.ghostMode")
+            let isCopyAllowed = UserDefaults.standard.bool(forKey: "scopegram.allowCopyRestricted")
+            let cantSave = (message.message?.containsSecretMedia == true && !isSecretAllowed) || (message.message?.isCopyProtected() == true && !isCopyAllowed)
             
             if message.message?.adAttribute != nil {
                 zoomInControl.isHidden = true

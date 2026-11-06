@@ -1859,7 +1859,7 @@ public class ChatInputView: View, Notifable {
             }
         }
         
-        if chatInteraction.interactionContext.peerId != chatInteraction.peerId, let peer = chatInteraction.presentation.peer, !peer.isChannel && !markNextTextChangeToFalseActivity {
+        if chatInteraction.interactionContext.peerId != chatInteraction.peerId, let peer = chatInteraction.presentation.peer, !peer.isChannel && !markNextTextChangeToFalseActivity, !UserDefaults.standard.bool(forKey: "scopegram.hideTyping"), !UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
             sendActivityDisposable.set((Signal<Bool, NoError>.single(!state.effectiveInput.inputText.isEmpty) |> then(Signal<Bool, NoError>.single(false) |> delay(4.0, queue: Queue.mainQueue()))).start(next: { [weak self] isPresent in
                 if let chatInteraction = self?.chatInteraction, let peer = chatInteraction.presentation.peer, !peer.isChannel && chatInteraction.presentation.state != .editing {
                     if self?.chatInteraction.peerIsAccountPeer == true {

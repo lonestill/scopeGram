@@ -2481,8 +2481,17 @@ enum UserInfoEntry<Context: AccountContextProtocol>: PeerInfoEntry {
                     LinkHooks.shared.openExternalLink("https://fragment.com", false)
                 }, itemImage: MenuAnimation.menu_show_info.value, removeTail: false, overrideWidth: 200))
             }
-            return TextAndLabelItem(initialSize, stableId: stableId.hashValue, label:value.label, copyMenuText: strings().textCopyLabelPhoneNumber, text: PeerInfoUIHooks.shared.formatPhoneNumber(arguments.context, value.number), context: arguments.context, viewType: viewType, canCopy: canCopy, _copyToClipboard: {
-                
+            let isPhoneHidden = UserDefaults.standard.bool(forKey: "scopegram.hidePhoneNumbers") || UserDefaults.standard.bool(forKey: "chargedGram.hidePhoneNumbers")
+            let phoneFormatted: String
+            if isPhoneHidden {
+                phoneFormatted = "+* *** ***-**-**"
+            } else {
+                phoneFormatted = PeerInfoUIHooks.shared.formatPhoneNumber(arguments.context, value.number)
+            }
+            return TextAndLabelItem(initialSize, stableId: stableId.hashValue, label:value.label, copyMenuText: strings().textCopyLabelPhoneNumber, text: phoneFormatted, context: arguments.context, viewType: viewType, canCopy: canCopy && !isPhoneHidden, _copyToClipboard: {
+                if isPhoneHidden {
+                    return
+                }
                 if value.number.hasPrefix("888") {
                     arguments.openFragment(.phoneNumber(value.number))
                 } else {
@@ -2850,6 +2859,9 @@ func userInfoEntries<Context: AccountContextProtocol>(view: PeerView, arguments:
                 if !usernames.isEmpty {
                     infoBlock.append(.userName(sectionId: sectionId, value: usernames, viewType: .singleItem))
                 }
+                if FastSettings.canViewPeerId || UserDefaults.standard.bool(forKey: "scopegram.showPeerId") {
+                    infoBlock.append(.peerId(sectionId: sectionId, value: "\(user.id.id._internalGetInt64Value())", viewType: .singleItem))
+                }
                 
           
                 
@@ -3082,11 +3094,7 @@ func userInfoEntries<Context: AccountContextProtocol>(view: PeerView, arguments:
                 
             }
             
-            if FastSettings.canViewPeerId, state.editingState == nil {
-                entries.append(UserInfoEntry<Context>.section(sectionId: sectionId))
-                sectionId += 1
-                entries.append(UserInfoEntry<Context>.peerId(sectionId: sectionId, value: "\(user.id.id._internalGetInt64Value())", viewType: .singleItem))
-            }
+
             
             if mediaTabsData.loaded && !mediaTabsData.collections.isEmpty, let controller = arguments.mediaController() {
                 if state.editingState != nil {

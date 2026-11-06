@@ -101,22 +101,26 @@ public func canForwardMessage(_ sourceMessage: Message, chatInteraction: any Mes
     if message.adAttribute != nil {
         return false
     }
-    if message.isCopyProtected(cachedData: chatInteraction.permissionCachedData) {
-        return false
+    if !UserDefaults.standard.bool(forKey: "scopegram.allowCopyRestricted") {
+        if message.isCopyProtected(cachedData: chatInteraction.permissionCachedData) {
+            return false
+        }
     }
 
     if message.extendedMedia is TelegramMediaAction {
         return false
     }
     
-    if let peer = message.peers[message.id.peerId] as? TelegramGroup {
-        if peer.flags.contains(.copyProtectionEnabled) {
-            return false
+    if !UserDefaults.standard.bool(forKey: "scopegram.allowCopyRestricted") {
+        if let peer = message.peers[message.id.peerId] as? TelegramGroup {
+            if peer.flags.contains(.copyProtectionEnabled) {
+                return false
+            }
         }
-    }
-    if let peer = message.peers[message.id.peerId] as? TelegramChannel {
-        if peer.flags.contains(.copyProtectionEnabled) {
-            return false
+        if let peer = message.peers[message.id.peerId] as? TelegramChannel {
+            if peer.flags.contains(.copyProtectionEnabled) {
+                return false
+            }
         }
     }
     

@@ -1,0 +1,246 @@
+name: Release Scopegram
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag_name:
+        description: 'Release tag (e.g. v1.0.0, leave empty for auto-tag)'
+        required: false
+        default: ''
+      configuration:
+        description: 'Build Configuration'
+        required: true
+        type: choice
+        options:
+          - Release
+          - Debug
+        default: 'Release'
+      draft:
+        description: 'Create draft release'
+        required: false
+        type: boolean
+        default: false
+      prerelease:
+        description: 'Mark as pre-release'
+        required: false
+        type: boolean
+        default: false
+      precompiled_tag:
+        description: 'Release tag for precompiled core frameworks'
+        required: false
+        default: 'precompiled-latest'
+
+jobs:
+  build-and-release:
+    name: Build & Release (arm64)
+    runs-on: macos-latest
+    timeout-minutes: 180
+    permissions:
+      contents: write
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 1
+
+      - name: Apply Scopegram patches to submodules
+        run: |
+          if [ -f scripts/patches/telegram-ios-scopegram.patch ]; then
+            echo "Applying Scopegram patch to submodules/telegram-ios..."
+            cd submodules/telegram-ios
+            git apply --check ../../scripts/patches/telegram-ios-scopegram.patch 2>/dev/null && git apply ../../scripts/patches/telegram-ios-scopegram.patch || echo "Patch already applied or skipped"
+            cd ../..
+          fi
+
+      - name: Determine release tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
+            TAG="${{ github.event.inputs.tag_name }}"
+          elif [ "${{ github.ref_type }}" = "tag" ]; then
+            TAG="${{ github.ref_name }}"
+          else
+            TAG="v$(date +'%Y.%m.%d-%H%M')"
+          fi
+          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
+          echo "Release tag: $TAG"
+
+      - name: Install build tools & dependencies
+        run: |
+          brew install cmake ninja meson nasm yasm openssl@3 zlib autoconf libtool automake pkg-config
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Restore or build precompiled core frameworks
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          PRECOMPILED_TAG="${{ github.event.inputs.precompiled_tag || 'precompiled-latest' }}"
+          FOUND=0
+
+          echo "==> Checking for precompiled frameworks archive ($PRECOMPILED_TAG)..."
+
+          if gh release download "$PRECOMPILED_TAG" -R "$GITHUB_REPOSITORY" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
+            echo "==> Downloaded precompiled archive from $GITHUB_REPOSITORY"
+            FOUND=1
+          elif gh release download "$PRECOMPILED_TAG" -R "lonestill/telegram-macos" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
+            echo "==> Downloaded precompiled archive from lonestill/telegram-macos"
+            FOUND=1
+          elif curl -fL "https://github.com/lonestill/telegram-macos/releases/download/${PRECOMPILED_TAG}/precompiled-core-macos-arm64.tar.gz" -o "precompiled.tar.gz" 2>/dev/null; then
+            echo "==> Downloaded precompiled archive via direct HTTPS URL"
+            FOUND=1
+          fi
+
+          if [ "$FOUND" -eq 1 ] && [ -f "precompiled.tar.gz" ]; then
+            echo "==> Extracting precompiled frameworks into repository root..."
+            tar -xzf "precompiled.tar.gz" -C .
+            rm -f "precompiled.tar.gz"
+            echo "==> Precompiled core frameworks successfully restored."
+          else
+            echo "==> Precompiled archive not found. Compiling frameworks from source..."
+            export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
+            export CMAKE_POLICY_VERSION_MINIMUM="3.5"
+            sh scripts/setup_build_env.sh --build
+          fi
+
+      - name: Prepare serialization and API sources
+        run: |
+          python3 scripts/prepare-telegram-api.py
+          python3 scripts/prepare-flat-serialization.py
+          sh scripts/sync-headers.sh
+
+      - name: Apply Xcode build fixes
+        run: |
+          sh scripts/xcode27.sh apply || true
+
+      - name: Build Scopegram
+        env:
+          BUILD_CONFIG: ${{ github.event.inputs.configuration || 'Release' }}
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+        run: |
+          echo "==> Building Scopegram with configuration: $BUILD_CONFIG"
+
+          if [ "$BUILD_CONFIG" = "Release" ] && [ -f "configurations/Stable.xcconfig" ]; then
+            cp "configurations/Stable.xcconfig" "Telegram-Mac/Release.xcconfig"
+          fi
+
+          xcodebuild -workspace "Telegram-Mac.xcworkspace" \
+            -scheme "Telegram" \
+            -configuration "$BUILD_CONFIG" \
+            -destination "platform=macOS,arch=arm64" \
+            -derivedDataPath "./build" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            CODE_SIGNING_REQUIRED=NO \
+            COMPILER_INDEX_STORE_ENABLE=NO \
+            build
+
+      - name: Locate and bundle Scopegram.app
+        env:
+          BUILD_CONFIG: ${{ github.event.inputs.configuration || 'Release' }}
+        run: |
+          APP_DIR="./build/Build/Products/$BUILD_CONFIG"
+
+          if [ -d "$APP_DIR/Telegram.app" ]; then
+            mv "$APP_DIR/Telegram.app" "$APP_DIR/Scopegram.app"
+          fi
+
+          if [ ! -d "$APP_DIR/Scopegram.app" ]; then
+            echo "Error: Scopegram.app not found under $APP_DIR"
+            ls -la "$APP_DIR" || true
+            exit 1
+          fi
+
+          cp -R "$APP_DIR/Scopegram.app" ./Scopegram.app
+          echo "==> Scopegram.app ready."
+
+      - name: Ad-hoc code sign application
+        run: |
+          echo "==> Ad-hoc signing Scopegram.app for Apple Silicon execution..."
+          codesign --force --deep -s - ./Scopegram.app
+          codesign --verify --deep --strict --verbose=2 ./Scopegram.app
+
+      - name: Package DMG and ZIP
+        run: |
+          echo "==> Creating Scopegram-macos-arm64.zip..."
+          ditto -c -k --sequesterRsrc --keepParent Scopegram.app Scopegram-macos-arm64.zip
+
+          echo "==> Creating Scopegram-macos-arm64.dmg..."
+          mkdir -p dmg_root
+          cp -R Scopegram.app dmg_root/
+          ln -s /Applications dmg_root/Applications
+          hdiutil create -volname "Scopegram" -srcfolder dmg_root -ov -format UDZO Scopegram-macos-arm64.dmg
+          rm -rf dmg_root
+
+          echo "==> Calculating SHA256 checksums..."
+          shasum -a 256 Scopegram-macos-arm64.dmg Scopegram-macos-arm64.zip > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Generate release notes
+        run: |
+          cat <<'EOF' > RELEASE_NOTES.md
+          ## Scopegram for macOS (Apple Silicon arm64)
+
+          ### Highlights & Features:
+          - **View-Once & Self-Destructing Media Unlock**: View-once photos and expiring videos open directly on macOS, play in full resolution, never burn/expire, and can be freely copied or saved.
+          - **Message Edit History**: Tracks full revision logs with visual indicator `изменено (X)` and timestamped history inspector in context menu.
+          - **Anti-Delete Message Protection**: Retains deleted messages with a distinct red `🗑 deleted` visual indicator.
+          - **Ghost Mode & Stealth Privacy**: Read messages and watch stories silently without sending read receipts or online presence.
+          - **Anti-Noforwards & Screenshot Bypass**: Copy text and save media without restrictions from protected channels.
+          - **Peer ID & Phone Number Masking**: Instant Peer ID copying in profiles; phone numbers masked for screen-sharing privacy.
+          - **Call Confirmation**: Prevents accidental voice and video calls.
+          - **No Sponsored Messages**: Zero Telegram ads or promoted posts.
+          - **Dedicated Settings Hub**: Full toggle control under Telegram Settings -> Scopegram Settings.
+
+          ### Installation:
+          1. Download **`Scopegram-macos-arm64.dmg`** (or `Scopegram-macos-arm64.zip`).
+          2. Open the DMG and drag **Scopegram.app** to your **/Applications** folder.
+          3. Because Scopegram is an independent open-source build with ad-hoc signing, macOS Gatekeeper may show a warning on first launch. If prompted, run this command in Terminal to clear the quarantine flag:
+             ```bash
+             xattr -cr /Applications/Scopegram.app
+             ```
+          4. Launch and enjoy!
+          EOF
+
+      - name: Upload workflow artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: Scopegram-macos-arm64
+          path: |
+            Scopegram-macos-arm64.dmg
+            Scopegram-macos-arm64.zip
+            SHA256SUMS.txt
+
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.tag }}"
+          DRAFT_FLAG=""
+          if [ "${{ github.event.inputs.draft }}" = "true" ]; then
+            DRAFT_FLAG="--draft"
+          fi
+          PRERELEASE_FLAG=""
+          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
+            PRERELEASE_FLAG="--prerelease"
+          fi
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG exists. Uploading assets..."
+            gh release upload "$TAG" Scopegram-macos-arm64.dmg Scopegram-macos-arm64.zip SHA256SUMS.txt --clobber
+          else
+            echo "Creating release $TAG..."
+            gh release create "$TAG" \
+              Scopegram-macos-arm64.dmg \
+              Scopegram-macos-arm64.zip \
+              SHA256SUMS.txt \
+              --title "Scopegram $TAG" \
+              --notes-file RELEASE_NOTES.md \
+              $DRAFT_FLAG $PRERELEASE_FLAG
+          fi

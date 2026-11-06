@@ -1197,6 +1197,9 @@ final class AccountContext {
 
     
     func applyMaxReadIndex(for location: ChatLocation, contextHolder: Atomic<ChatLocationContextHolder?>, messageIndex: MessageIndex) {
+        if UserDefaults.standard.bool(forKey: "scopegram.ghostMode") || UserDefaults.standard.bool(forKey: "scopegram.dontReadMessages") || UserDefaults.standard.bool(forKey: "chargedGram.ghostMode") || UserDefaults.standard.bool(forKey: "mod.keepChatsUnread") {
+            return
+        }
         switch location {
         case .peer:
             let _ = self.engine.messages.applyMaxReadIndexInteractively(index: messageIndex).start()

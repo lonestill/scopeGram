@@ -245,13 +245,13 @@ func AppUpdateViewController() -> InputDataController {
     return InputDataController(dataSignal: signal, title: strings().appUpdateTitle, validateData: { data in
         
         if let _ = data[_id_download_update] {
-            driver?.downloadUpdate()
+            ScopegramUpdateManager.shared.startDownload()
         }
         if let _ = data[_id_check_for_updates] {
-            resetUpdater()
+            ScopegramUpdateManager.shared.checkNow(manual: true)
         }
         if let _ = data[_id_install_update] {
-            driver?.install(withToolAndRelaunch: true)
+            ScopegramUpdateManager.shared.installUpdate()
         }
         
         return .none
@@ -731,61 +731,199 @@ private func cancelStagedUpdate() {
     staged.abortUpdate()
 }
 
-private func resetUpdater() {
+public final class ScopegramUpdateManager: NSObject, URLSessionDownloadDelegate {
+    public static let shared = ScopegramUpdateManager()
     
-    #if !GITHUB
-        let update:()->Void = {
-            let state = stateValue.with { $0.loadingState }
-            switch state {
-            case .readyToInstall:
-                stageNewerUpdate()
-            case .installing, .unarchiving, .loading:
-                break
-            default:
-                driver?.checkForUpdates(at: updateFeedURL, host: host, domain: updater.host)
-            }
+    public var repository: String {
+        get {
+            return UserDefaults.standard.string(forKey: "scopegram.updateRepo") ?? "lonestill/telegram-macos"
         }
+        set {
+            UserDefaults.standard.set(newValue, forKey: "scopegram.updateRepo")
+        }
+    }
     
+    private var currentDownloadTask: URLSessionDownloadTask?
+    private lazy var downloadSession: URLSession = {
+        let config = URLSessionConfiguration.default
+        return URLSession(configuration: config, delegate: self, delegateQueue: .main)
+    }()
     
-        let signal: Signal<Never, NoError> = Signal { subscriber in
-            update()
-            subscriber.putCompletion()
-            return EmptyDisposable
-            } |> delay(20 * 60, queue: .mainQueue()) |> restart
-        disposable.set(signal.start())
+    public private(set) var latestItem: SUAppcastItem?
+    public private(set) var downloadedFilePath: String?
+    private var isChecking = false
     
-        update()
-    #endif
+    public func checkNow(manual: Bool = false) {
+        guard !isChecking else { return }
+        isChecking = true
+        
+        updateState { $0.withUpdatedLoadingState(.initializing) }
+        
+        guard let url = URL(string: "https://api.github.com/repos/\(self.repository)/releases/latest") else {
+            isChecking = false
+            updateState { $0.withUpdatedLoadingState(.failed(NSError(domain: "Invalid update URL", code: -1, userInfo: nil))) }
+            return
+        }
+        
+        var request = URLRequest(url: url)
+        request.setValue("Scopegram-Updater", forHTTPHeaderField: "User-Agent")
+        request.setValue("application/vnd.github.v3+json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = 15.0
+        
+        URLSession.shared.dataTask(with: request) { [weak self] data, response, error in
+            DispatchQueue.main.async {
+                guard let self = self else { return }
+                self.isChecking = false
+                
+                if let error = error {
+                    if manual {
+                        updateState { $0.withUpdatedLoadingState(.failed(error as NSError)) }
+                    } else {
+                        updateState { $0.withUpdatedLoadingState(.uptodate) }
+                    }
+                    return
+                }
+                
+                guard let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode == 200, let data = data else {
+                    if manual {
+                        let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+                        updateState { $0.withUpdatedLoadingState(.failed(NSError(domain: "Не удалось получить релиз с GitHub (код \(code))", code: code, userInfo: nil))) }
+                    } else {
+                        updateState { $0.withUpdatedLoadingState(.uptodate) }
+                    }
+                    return
+                }
+                
+                do {
+                    guard let json = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                          let tagName = json["tag_name"] as? String else {
+                        updateState { $0.withUpdatedLoadingState(.uptodate) }
+                        return
+                    }
+                    
+                    let cleanRemoteVersion = tagName.trimmingCharacters(in: CharacterSet(charactersIn: "vV"))
+                    let currentVersion = (Bundle.main.infoDictionary?["CFBundleShortVersionString"] as? String) ?? "1.0.0"
+                    
+                    let isNewer = SUStandardVersionComparator().compareVersion(currentVersion, toVersion: cleanRemoteVersion) == .orderedAscending
+                    
+                    if isNewer {
+                        let releaseName = (json["name"] as? String) ?? "Scopegram \(tagName)"
+                        let body = (json["body"] as? String) ?? "Новая версия Scopegram доступна для обновления."
+                        
+                        var assetUrlString = ""
+                        var assetSize: Int64 = 0
+                        
+                        if let assets = json["assets"] as? [[String: Any]] {
+                            for asset in assets {
+                                if let name = asset["name"] as? String, (name.hasSuffix(".dmg") || name.hasSuffix(".zip")) {
+                                    if let url = asset["browser_download_url"] as? String {
+                                        assetUrlString = url
+                                        assetSize = (asset["size"] as? Int64) ?? 0
+                                        if name.hasSuffix(".dmg") {
+                                            break
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        
+                        if assetUrlString.isEmpty {
+                            assetUrlString = (json["html_url"] as? String) ?? "https://github.com/\(self.repository)/releases"
+                        }
+                        
+                        let enclosure: [String: Any] = [
+                            "url": assetUrlString,
+                            "length": "\(assetSize)",
+                            "sparkle:version": cleanRemoteVersion,
+                            "sparkle:shortVersionString": cleanRemoteVersion,
+                            "type": "application/octet-stream"
+                        ]
+                        let dict: [String: Any] = [
+                            "title": releaseName,
+                            "description": body,
+                            "sparkle:version": cleanRemoteVersion,
+                            "sparkle:shortVersionString": cleanRemoteVersion,
+                            "enclosure": enclosure
+                        ]
+                        
+                        if let item = SUAppcastItem(dictionary: dict, domain: nil) {
+                            self.latestItem = item
+                            updateState { $0.withUpdatedLoadingState(.hasUpdate(item)) }
+                        } else {
+                            updateState { $0.withUpdatedLoadingState(.uptodate) }
+                        }
+                    } else {
+                        updateState { $0.withUpdatedLoadingState(.uptodate) }
+                    }
+                } catch {
+                    if manual {
+                        updateState { $0.withUpdatedLoadingState(.failed(error as NSError)) }
+                    } else {
+                        updateState { $0.withUpdatedLoadingState(.uptodate) }
+                    }
+                }
+            }
+        }.resume()
+    }
     
-   
+    public func startDownload() {
+        guard let item = self.latestItem, let downloadUrl = item.fileURL else { return }
+        
+        let task = downloadSession.downloadTask(with: downloadUrl)
+        self.currentDownloadTask = task
+        updateState { $0.withUpdatedLoadingState(.loading(item: item, current: 0, total: Int(item.contentLength))) }
+        task.resume()
+    }
+    
+    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didWriteData bytesWritten: Int64, totalBytesWritten: Int64, totalBytesExpectedToWrite: Int64) {
+        guard let item = self.latestItem else { return }
+        let total = totalBytesExpectedToWrite > 0 ? Int(totalBytesExpectedToWrite) : Int(item.contentLength)
+        updateState { $0.withUpdatedLoadingState(.loading(item: item, current: Int(totalBytesWritten), total: total)) }
+    }
+    
+    public func urlSession(_ session: URLSession, downloadTask: URLSessionDownloadTask, didFinishDownloadingTo location: URL) {
+        guard let item = self.latestItem else { return }
+        
+        let downloadsDir = FileManager.default.urls(for: .downloadsDirectory, in: .userDomainMask).first ?? URL(fileURLWithPath: NSTemporaryDirectory())
+        let destUrl = downloadsDir.appendingPathComponent("Scopegram-\(item.displayVersionString ?? "latest").dmg")
+        
+        try? FileManager.default.removeItem(at: destUrl)
+        do {
+            try FileManager.default.copyItem(at: location, to: destUrl)
+            self.downloadedFilePath = destUrl.path
+            updateState { $0.withUpdatedLoadingState(.readyToInstall(item)) }
+        } catch {
+            updateState { $0.withUpdatedLoadingState(.failed(error as NSError)) }
+        }
+    }
+    
+    public func urlSession(_ session: URLSession, task: URLSessionTask, didCompleteWithError error: Error?) {
+        if let error = error {
+            updateState { $0.withUpdatedLoadingState(.failed(error as NSError)) }
+        }
+    }
+    
+    public func installUpdate() {
+        guard let path = self.downloadedFilePath, FileManager.default.fileExists(atPath: path) else {
+            if let url = self.latestItem?.fileURL {
+                NSWorkspace.shared.open(url)
+            }
+            return
+        }
+        let url = URL(fileURLWithPath: path)
+        NSWorkspace.shared.open(url)
+    }
+}
+
+private func resetUpdater() {
+    ScopegramUpdateManager.shared.checkNow(manual: false)
 }
 
 private var updaterSource: UpdaterSource? = nil
 
 func updater_resetWithUpdaterSource(_ source: UpdaterSource, force: Bool = true) {
-    let state = stateValue.with { $0 }
-    switch state.loadingState {
-    case .readyToInstall:
-        updaterSource = source
-        if force {
-            resetUpdater()
-        }
-        return
-    default:
-        break
-    }
-    if updaterSource != source {
-        updaterSource = source
-        driver = makeUpdateDriver(source)
-    }
-    if force {
-        if state.loadingState != .initializing {
-            updateState {
-                $0.withUpdatedLoadingState(.initializing)
-            }
-            resetUpdater()
-        }
-    }
+    updaterSource = source
+    ScopegramUpdateManager.shared.checkNow(manual: force)
 }
 
 

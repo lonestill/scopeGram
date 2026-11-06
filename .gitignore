@@ -29,3 +29,7 @@ core-xprojects/tlottie/build
 .swiftpm/
 .ci-build-logs/
 *.profraw
+build.log
+build_last_error.log
+*.dmg
+*.zip

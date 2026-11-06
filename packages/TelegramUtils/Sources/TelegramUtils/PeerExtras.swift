@@ -32,6 +32,9 @@ public extension Peer {
         return isCopyProtected(cachedData: nil)
     }
     func isCopyProtected(cachedData: CachedPeerData?) -> Bool {
+        if UserDefaults.standard.bool(forKey: "scopegram.allowCopyRestricted") {
+            return false
+        }
         if let peer = self as? TelegramGroup {
             return peer.flags.contains(.copyProtectionEnabled) && !peer.groupAccess.isCreator
         } else if let peer = self as? TelegramChannel {

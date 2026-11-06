@@ -1400,6 +1400,9 @@ public final class StoryContentContextImpl: StoryContentContext {
     }
     
     public func markAsSeen(id: StoryId) {
+        if UserDefaults.standard.bool(forKey: "scopegram.stealthStories") || UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
+            return
+        }
         let _ = self.context.engine.messages.markStoryAsSeen(peerId: id.peerId, id: id.id, asPinned: false).startStandalone()
     }
 }
@@ -1702,6 +1705,9 @@ public final class SingleStoryContentContextImpl: StoryContentContext {
     }
     
     public func markAsSeen(id: StoryId) {
+        if UserDefaults.standard.bool(forKey: "scopegram.stealthStories") || UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
+            return
+        }
         if self.readGlobally {
             let _ = self.context.engine.messages.markStoryAsSeen(peerId: id.peerId, id: id.id, asPinned: false).startStandalone()
 
@@ -1998,6 +2004,9 @@ public final class PeerStoryListContentContextImpl: StoryContentContext {
     }
     
     public func markAsSeen(id: StoryId) {
+        if UserDefaults.standard.bool(forKey: "scopegram.stealthStories") || UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
+            return
+        }
         let _ = self.context.engine.messages.markStoryAsSeen(peerId: id.peerId, id: id.id, asPinned: true).startStandalone()
     }
 }

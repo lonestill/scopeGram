@@ -484,13 +484,17 @@ public final class SingleTimeMediaViewer : ModalViewController {
         genericView.update(context: context, message: message)
         
         genericView.mediaView?.didFinish = { [weak self] view in
-            self?.close()
+            if !UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia"), !UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
+                self?.close()
+            }
         }
         genericView.close.set(handler: { [weak self] _ in
             self?.genericView.stopAndClose()
         }, for: .Click)
         
-        _ = context.engine.messages.markMessageContentAsConsumedInteractively(messageId: message.id).start()
+        if !UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia"), !UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
+            _ = context.engine.messages.markMessageContentAsConsumedInteractively(messageId: message.id).start()
+        }
 
         readyOnce()
     }

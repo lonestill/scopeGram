@@ -70,7 +70,9 @@ public class AccountInfoItem: GeneralRowItem {
         self.titleActiveLayout = .init(activeTitle, maximumNumberOfLines: 1)
         
         if let phone = peer.phone {
-            _ = attr.append(string: SettingsHooks.shared.formatPhoneNumber(context, phone), color: theme.colors.grayText, font: .normal(.text))
+            let isPhoneHidden = UserDefaults.standard.bool(forKey: "scopegram.hidePhoneNumbers") || UserDefaults.standard.bool(forKey: "chargedGram.hidePhoneNumbers")
+            let phoneStr = isPhoneHidden ? "+* *** ***-**-**" : SettingsHooks.shared.formatPhoneNumber(context, phone)
+            _ = attr.append(string: phoneStr, color: theme.colors.grayText, font: .normal(.text))
         }
         if let username = peer.username, !username.isEmpty {
             if !attr.string.isEmpty {

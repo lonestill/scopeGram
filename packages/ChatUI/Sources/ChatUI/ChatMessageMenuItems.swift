@@ -404,7 +404,8 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
         
         let peer = data.message.peers[data.message.id.peerId]
         let isNotFailed = !message.flags.contains(.Failed) && !message.flags.contains(.Unsent) && !data.message.flags.contains(.Sending)
-        let protected = data.message.containsSecretMedia || data.message.isCopyProtected(cachedData: data.chatInteraction.presentation.cachedData)
+        let allowCopy = UserDefaults.standard.bool(forKey: "scopegram.allowCopyRestricted") || UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia")
+        let protected = (!allowCopy && data.message.containsSecretMedia) || (!allowCopy && data.message.isCopyProtected(cachedData: data.chatInteraction.presentation.cachedData))
         let peerId = data.peerId
         let messageId = data.message.id
         let appConfiguration = data.chatInteraction.interactionContext.appConfiguration
@@ -1144,6 +1145,20 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
             secondBlock.append(edit)
             
             
+        }
+        
+        if let edits = ScopegramEditHistoryRegistry.shared.getHistory(messageId: data.message.id), !edits.isEmpty {
+            let historyItem = ContextMenuItem("История изменений (\(edits.count))", handler: {
+                var text = "История изменений:\n\n"
+                let formatter = DateSelectorUtil.chatFullDateFormatter
+                for (i, entry) in edits.enumerated() {
+                    let dateStr = formatter.string(from: Date(timeIntervalSince1970: TimeInterval(entry.date)))
+                    text += "[\(i + 1)] \(dateStr):\n\(entry.text)\n\n"
+                }
+                text += "[Текущая версия]:\n\(data.message.text)"
+                alert(for: context.window, info: text)
+            }, itemImage: MenuAnimation.menu_edit.value)
+            secondBlock.append(historyItem)
         }
         
         if let media = data.message.media.first as? TelegramMediaTodo {

@@ -10,6 +10,11 @@ ENGINE_TOOLCHAIN_FILE="$ROOT_DIR/submodules/telegram-ios/third-party/mtproto-eng
 BUILD_DIR="$SCRIPT_DIR/build"
 DEPLOYMENT_TARGET="10.13"
 
+if [ -f "$BUILD_DIR/libtlottie.a" ]; then
+    echo "libtlottie.a already built: $BUILD_DIR/libtlottie.a"
+    exit 0
+fi
+
 if [ ! -f "$SOURCE_DIR/Cargo.toml" ]; then
     echo "tlottie sources are missing at $SOURCE_DIR"
     echo "Check out the submodule first:"

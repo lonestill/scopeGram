@@ -942,6 +942,9 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
                         contextValue.context.bindings.rootNavigation().controller.updateController()
                     }
                 }, applyMaxReadIndexInteractively: { index in
+                    if UserDefaults.standard.bool(forKey: "scopegram.ghostMode") || UserDefaults.standard.bool(forKey: "scopegram.dontReadMessages") || UserDefaults.standard.bool(forKey: "chargedGram.ghostMode") || UserDefaults.standard.bool(forKey: "mod.keepChatsUnread") {
+                        return
+                    }
                     if let context = self.contextValue?.context {
                         _ = context.engine.messages.applyMaxReadIndexInteractively(index: index).start()
                     }
@@ -1334,19 +1337,20 @@ class AppDelegate: NSResponder, NSApplicationDelegate, NSUserNotificationCenterD
     @IBAction func checkForUpdates(_ sender: Any) {
         #if !APP_STORE
             showModal(with: InputDataModalController(AppUpdateViewController()), for: window)
-            #if STABLE
-                if let context = self.contextValue?.context {
-                    updater_resetWithUpdaterSource(.internal(context: context))
-                } else {
-                    updater_resetWithUpdaterSource(.external(context: nil))
-                }
-            #else
-                updater_resetWithUpdaterSource(.external(context: self.contextValue?.context))
-            #endif
+            ScopegramUpdateManager.shared.checkNow(manual: true)
         #endif
     }
     
     override func awakeFromNib() {
+        if let appItem = NSApp.mainMenu?.items.first {
+            appItem.title = "Scopegram"
+            if let submenu = appItem.submenu {
+                submenu.title = "Scopegram"
+                if let first = submenu.items.first {
+                    first.title = "About Scopegram"
+                }
+            }
+        }
         #if APP_STORE
         if let menu = NSApp.mainMenu?.item(at: 0)?.submenu, let sparkleItem = menu.item(withTag: 1000) {
             menu.removeItem(sparkleItem)

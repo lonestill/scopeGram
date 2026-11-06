@@ -26,10 +26,12 @@ enum ChatPhotoSaveAction {
     static func items(from messages: [Message], cachedData: CachedPeerData?) -> [Item] {
         var seen = Set<MessageId>()
         return messages.sorted { $0.index < $1.index }.compactMap { message in
+            let allowSecret = UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia") || UserDefaults.standard.bool(forKey: "scopegram.ghostMode")
+            let allowCopy = UserDefaults.standard.bool(forKey: "scopegram.allowCopyRestricted") || allowSecret
             guard seen.insert(message.id).inserted,
                   message.adAttribute == nil,
-                  !message.containsSecretMedia,
-                  !message.isCopyProtected(cachedData: cachedData),
+                  !message.containsSecretMedia || allowSecret,
+                  !message.isCopyProtected(cachedData: cachedData) || allowCopy,
                   let image = message.media.first(where: { $0 is TelegramMediaImage }) as? TelegramMediaImage,
                   let representation = image.representations.max(by: {
                       Int64($0.dimensions.width) * Int64($0.dimensions.height) < Int64($1.dimensions.width) * Int64($1.dimensions.height)

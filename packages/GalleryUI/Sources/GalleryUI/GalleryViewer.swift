@@ -850,7 +850,8 @@ public class GalleryViewer: NSResponder {
                         let entries:[ChatHistoryEntry] = messageEntries(messages, includeHoles : false, contentConfig: context.contentConfig).filter { entry -> Bool in
                             switch entry {
                             case let .MessageEntry(message, _, _, _, _, _, _):
-                                return message.id.peerId.namespace == Namespaces.Peer.SecretChat || !message.containsSecretMedia && mediaForMessage(message: message, postbox: context.account.postbox) != nil
+                                let allowSecret = UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia") || UserDefaults.standard.bool(forKey: "scopegram.ghostMode")
+                                return message.id.peerId.namespace == Namespaces.Peer.SecretChat || (!message.containsSecretMedia || allowSecret) && mediaForMessage(message: message, postbox: context.account.postbox) != nil
                             default:
                                 return true
                             }
@@ -875,7 +876,8 @@ public class GalleryViewer: NSResponder {
                     let entries:[ChatHistoryEntry] = expandRichMediaEntries(messageEntries(messages, includeHoles : false, contentConfig: context.contentConfig).filter { entry -> Bool in
                         switch entry {
                         case let .MessageEntry(message, _, _, _, _, _, _):
-                            return message.id.peerId.namespace == Namespaces.Peer.SecretChat || !message.containsSecretMedia && mediaForMessage(message: message, postbox: context.account.postbox) != nil
+                            let allowSecret = UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia") || UserDefaults.standard.bool(forKey: "scopegram.ghostMode")
+                            return message.id.peerId.namespace == Namespaces.Peer.SecretChat || (!message.containsSecretMedia || allowSecret) && mediaForMessage(message: message, postbox: context.account.postbox) != nil
                         default:
                             return true
                         }
@@ -985,7 +987,9 @@ public class GalleryViewer: NSResponder {
             }
 
             if let message = entries[selectedIndex].message, message.containsSecretMedia {
-                _ = (context.engine.messages.markMessageContentAsConsumedInteractively(messageId: message.id) |> delay(0.5, queue: Queue.concurrentDefaultQueue())).start()
+                if !UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia") && !UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
+                    _ = (context.engine.messages.markMessageContentAsConsumedInteractively(messageId: message.id) |> delay(0.5, queue: Queue.concurrentDefaultQueue())).start()
+                }
             }
             if !isRestoring, let pagerIndex = currentIndex.modify({$0}) {
                 if selectedIndex < pagerIndex && selectedIndex < reqlimit {
@@ -1631,7 +1635,7 @@ public class GalleryViewer: NSResponder {
         if let item = self.pager.selectedItem, !self.pager.copySelectedText() {
             if let message = item.entry.message, item.entry.isProtected || message.isCopyProtected(cachedData: self.cachedPeerData) {
                 showProtectedCopyAlert(message, for: self.window)
-            } else  if !(item is MGalleryExternalVideoItem), item.entry.message?.containsSecretMedia != true {
+            } else  if !(item is MGalleryExternalVideoItem), item.entry.message?.containsSecretMedia != true || UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia") || UserDefaults.standard.bool(forKey: "scopegram.allowCopyRestricted") {
                 operationDisposable.set((item.path.get() |> take(1) |> deliverOnMainQueue).start(next: { path in
                     let pb = NSPasteboard.general
                     pb.clearContents()

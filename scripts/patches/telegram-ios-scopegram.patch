@@ -1,0 +1,181 @@
+diff --git a/submodules/TelegramCore/Sources/Account/AccountIntermediateState.swift b/submodules/TelegramCore/Sources/Account/AccountIntermediateState.swift
+index c3331a5e..c0e53d19 100644
+--- a/submodules/TelegramCore/Sources/Account/AccountIntermediateState.swift
++++ b/submodules/TelegramCore/Sources/Account/AccountIntermediateState.swift
+@@ -4,6 +4,131 @@ import SwiftSignalKit
+ internal import TelegramApi
+ import MtProtoKit
+ 
++public final class ScopegramAntiDeleteRegistry: @unchecked Sendable {
++    public static let shared = ScopegramAntiDeleteRegistry()
++    private let lock = NSLock()
++    private var deletedMessageIds: Set<MessageId> = []
++    private var deletedGlobalIds: Set<Int32> = []
++
++    private init() {
++        if let data = UserDefaults.standard.data(forKey: "scopegram.deletedMessageIdsJson") {
++            if let decoded = try? JSONDecoder().decode([MessageId].self, from: data) {
++                deletedMessageIds = Set(decoded)
++            }
++        }
++        if let stored = UserDefaults.standard.array(forKey: "scopegram.deletedGlobalIds") as? [NSNumber] {
++            deletedGlobalIds = Set(stored.map { $0.int32Value })
++        }
++    }
++
++    public func record(messageIds: [MessageId]) {
++        lock.lock()
++        defer {
++            save()
++            lock.unlock()
++        }
++        for mId in messageIds {
++            deletedMessageIds.insert(mId)
++        }
++    }
++
++    public func record(globalIds: [Int32]) {
++        lock.lock()
++        defer {
++            save()
++            lock.unlock()
++        }
++        for gId in globalIds {
++            deletedGlobalIds.insert(gId)
++        }
++    }
++
++    public func isDeleted(peerId: PeerId, messageId: MessageId) -> Bool {
++        lock.lock()
++        defer { lock.unlock() }
++        if deletedMessageIds.contains(messageId) {
++            return true
++        }
++        if deletedGlobalIds.contains(messageId.id) {
++            return true
++        }
++        return false
++    }
++
++    private func save() {
++        let maxCount = 2000
++        let toSave = Array(deletedMessageIds.suffix(maxCount))
++        if let data = try? JSONEncoder().encode(toSave) {
++            UserDefaults.standard.set(data, forKey: "scopegram.deletedMessageIdsJson")
++        }
++        let toSaveGlobals = Array(deletedGlobalIds.suffix(maxCount)).map { NSNumber(value: $0) }
++        UserDefaults.standard.set(toSaveGlobals, forKey: "scopegram.deletedGlobalIds")
++    }
++}
++
++public struct ScopegramEditHistoryEntry: Codable, Sendable {
++    public let text: String
++    public let date: Int32
++    public init(text: String, date: Int32) {
++        self.text = text
++        self.date = date
++    }
++}
++
++public final class ScopegramEditHistoryRegistry: @unchecked Sendable {
++    public static let shared = ScopegramEditHistoryRegistry()
++    private let lock = NSLock()
++    private var history: [MessageId: [ScopegramEditHistoryEntry]] = [:]
++
++    private init() {
++        if let data = UserDefaults.standard.data(forKey: "scopegram.editHistoryJson") {
++            if let decoded = try? JSONDecoder().decode([MessageId: [ScopegramEditHistoryEntry]].self, from: data) {
++                history = decoded
++            }
++        }
++    }
++
++    public func record(messageId: MessageId, text: String, date: Int32) {
++        guard !text.isEmpty else { return }
++        lock.lock()
++        defer {
++            save()
++            lock.unlock()
++        }
++        var list = history[messageId] ?? []
++        if list.last?.text != text {
++            list.append(ScopegramEditHistoryEntry(text: text, date: date))
++            history[messageId] = list
++        }
++    }
++
++    public func getHistory(messageId: MessageId) -> [ScopegramEditHistoryEntry]? {
++        lock.lock()
++        defer { lock.unlock() }
++        return history[messageId]
++    }
++
++    public func hasHistory(messageId: MessageId) -> Bool {
++        lock.lock()
++        defer { lock.unlock() }
++        return !(history[messageId]?.isEmpty ?? true)
++    }
++
++    private func save() {
++        let maxEntries = 500
++        var trimmed = history
++        if trimmed.count > maxEntries {
++            let keysToRemove = trimmed.keys.prefix(trimmed.count - maxEntries)
++            for k in keysToRemove {
++                trimmed.removeValue(forKey: k)
++            }
++        }
++        if let data = try? JSONEncoder().encode(trimmed) {
++            UserDefaults.standard.set(data, forKey: "scopegram.editHistoryJson")
++        }
++    }
++}
++
+ 
+ struct PeerChatInfo {
+     var notificationSettings: PeerNotificationSettings
+@@ -394,10 +519,18 @@ struct AccountMutableState {
+     }
+ 
+     mutating func deleteMessagesWithGlobalIds(_ globalIds: [Int32]) {
++        if UserDefaults.standard.bool(forKey: "scopegram.showDeletedMessages") || UserDefaults.standard.bool(forKey: "chargedGram.showDeletedMessages") {
++            ScopegramAntiDeleteRegistry.shared.record(globalIds: globalIds)
++            return
++        }
+         self.addOperation(.DeleteMessagesWithGlobalIds(globalIds))
+     }
+     
+     mutating func deleteMessages(_ messageIds: [MessageId]) {
++        if UserDefaults.standard.bool(forKey: "scopegram.showDeletedMessages") || UserDefaults.standard.bool(forKey: "chargedGram.showDeletedMessages") {
++            ScopegramAntiDeleteRegistry.shared.record(messageIds: messageIds)
++            return
++        }
+         self.addOperation(.DeleteMessages(messageIds))
+     }
+     
+@@ -414,6 +547,11 @@ struct AccountMutableState {
+     }
+ 
+     mutating func deleteEphemeralMessages(peerId: PeerId, ids: [Int32]) {
++        if UserDefaults.standard.bool(forKey: "scopegram.showDeletedMessages") || UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia") {
++            let mIds = ids.map { MessageId(peerId: peerId, namespace: Namespaces.Message.Cloud, id: $0) }
++            ScopegramAntiDeleteRegistry.shared.record(messageIds: mIds)
++            return
++        }
+         self.addOperation(.DeleteEphemeralMessages(peerId, ids))
+     }
+     
+diff --git a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+index 3d99e59d..b72abb7b 100644
+--- a/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
++++ b/submodules/TelegramCore/Sources/State/AccountStateManagementUtils.swift
+@@ -4670,6 +4670,9 @@ func replayFinalState(
+             case let .EditMessage(id, message):
+                 var generatedEvent: (reactionAuthor: Peer, reaction: MessageReaction.Reaction, message: Message, timestamp: Int32)?
+                 transaction.updateMessage(id, update: { previousMessage in
++                    if !previousMessage.text.isEmpty {
++                        ScopegramEditHistoryRegistry.shared.record(messageId: id, text: previousMessage.text, date: previousMessage.timestamp)
++                    }
+                     let peers: [PeerId:Peer] = previousMessage.peers.reduce([:], { current, value in
+                         var current = current
+                         current[value.0] = value.1

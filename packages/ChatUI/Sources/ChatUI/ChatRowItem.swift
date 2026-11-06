@@ -421,6 +421,10 @@ public class ChatRowItem: TableRowItem {
             return height
         }
         
+        if message.adAttribute != nil && UserDefaults.standard.bool(forKey: "scopegram.hideAds") {
+            return 0
+        }
+        
         if !isBubbled, case .Full = self.itemType, self is ChatMessageItem {
             height += 2
         }
@@ -2745,14 +2749,25 @@ public class ChatRowItem: TableRowItem {
                 diceStake?.measure(width: .greatestFiniteMagnitude)
             }
 
-            if editedAttribute != nil || message.id.namespace == Namespaces.Message.Cloud {
+            if ScopegramAntiDeleteRegistry.shared.isDeleted(peerId: message.id.peerId, messageId: message.id) {
+                let string = "🗑 deleted"
+                let attr: NSAttributedString = .initialize(string: string, color: theme.colors.redUI, font: renderType == .bubble ? .bold(.small) : .bold(.short))
+                editedLabel = TextViewLayout(attr, maximumNumberOfLines: 1)
+                editedLabel?.measure(width: .greatestFiniteMagnitude)
+            } else if editedAttribute != nil || message.id.namespace == Namespaces.Message.Cloud {
                 if isEditMarkVisible || isUnsent, message.id.peerId != context.peerId, let editedAttribute {
                     
                     
                     var string = strings().chatMessageEdited
+                    if let edits = ScopegramEditHistoryRegistry.shared.getHistory(messageId: message.id), !edits.isEmpty {
+                        string = "\(string) (\(edits.count))"
+                    }
                     
                     if message_primary_edited_date {
                         string = strings().chatRowEdited(stringForMediumDate(timestamp: editedAttribute.date))
+                        if let edits = ScopegramEditHistoryRegistry.shared.getHistory(messageId: message.id), !edits.isEmpty {
+                            string = "\(string) (\(edits.count))"
+                        }
                     }
                                         
                     let attr: NSAttributedString = .initialize(string: string, color: isStateOverlayLayout ? stateOverlayTextColor : !hasBubble ? theme.colors.grayText : theme.chat.grayText(isIncoming, object.renderType == .bubble), font: renderType == .bubble ? .normal(.small) : .normal(.short))
@@ -2963,8 +2978,10 @@ public class ChatRowItem: TableRowItem {
                 return ChatMessageItem(initialSize, interaction, interaction.interactionContext, entry, theme: theme)
             } else {
                 if message.id.peerId.namespace != Namespaces.Peer.SecretChat, message.autoclearTimeout != nil {
-                    if let media = message.media.first, media is TelegramMediaImage || (media.isVideoFile && !media.isInstantVideo) {
-                        return ChatServiceItem(initialSize, interaction,interaction.interactionContext, entry, theme: theme)
+                    if !UserDefaults.standard.bool(forKey: "scopegram.saveExpiringMedia") && !UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
+                        if let media = message.media.first, media is TelegramMediaImage || (media.isVideoFile && !media.isInstantVideo) {
+                            return ChatServiceItem(initialSize, interaction,interaction.interactionContext, entry, theme: theme)
+                        }
                     }
                 }
                 if message.media.first is TelegramMediaGiveawayResults {

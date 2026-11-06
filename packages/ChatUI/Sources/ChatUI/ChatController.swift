@@ -2309,6 +2309,10 @@ private final class ChatAdData {
     
     
     private func resetAllAdMessages(_ fixed: Message?) {
+        if UserDefaults.standard.bool(forKey: "scopegram.hideAds") {
+            self.allAdMessages = (nil, [], 0)
+            return
+        }
         if self.allAdMessages.fixed === fixed && self.allAdMessages.opportunistic.isEmpty && self.allAdMessages.version == 0 {
             return
         }
@@ -2316,6 +2320,9 @@ private final class ChatAdData {
     }
     
     private func maybeInsertPendingAdMessage(tableView: TableView, position: ScrollPosition, toLaterRange: (Int, Int), toEarlierRange: (Int, Int)) {
+        if UserDefaults.standard.bool(forKey: "scopegram.hideAds") {
+            return
+        }
         if self.pendingDynamicAdMessages.isEmpty {
             return
         }
@@ -11810,7 +11817,7 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
                         guard let `self` = self else {
                             return
                         }
-                        if self.chatInteraction.peerIsAccountPeer {
+                        if self.chatInteraction.peerIsAccountPeer, !UserDefaults.standard.bool(forKey: "scopegram.hideTyping"), !UserDefaults.standard.bool(forKey: "scopegram.ghostMode") {
                             self.context.account.updateLocalInputActivity(peerId: .init(peerId: self.chatLocation.peerId, category: mode.activityCategory(value.chatLocation.threadId)), activity: activity, isPresent: true)
                         }
                     }))

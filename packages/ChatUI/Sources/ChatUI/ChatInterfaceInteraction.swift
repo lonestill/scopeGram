@@ -654,6 +654,14 @@ public final class ChatInteraction : InterfaceObserver  {
                 peerId = peer.id
             }
             let context = self.context
+            if UserDefaults.standard.bool(forKey: "scopegram.confirmCalls") || UserDefaults.standard.bool(forKey: "chargedGram.confirmCalls") {
+                let peerName = peer.displayTitle
+                let alertText = isVideo ? "Do you want to start a video call with \(peerName)?" : "Do you want to call \(peerName)?"
+                verifyAlert_button(for: context.window, header: "Confirm Call", information: alertText, ok: "Call", cancel: "Cancel", successHandler: { [weak self] _ in
+                    self?.requestSessionId.set(ChatNavigationHooks.shared.startPhoneCall(context, peerId, isVideo))
+                })
+                return
+            }
             requestSessionId.set(ChatNavigationHooks.shared.startPhoneCall(context, peerId, isVideo))
         }
     }
