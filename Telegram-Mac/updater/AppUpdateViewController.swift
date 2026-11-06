@@ -736,7 +736,7 @@ public final class ScopegramUpdateManager: NSObject, URLSessionDownloadDelegate 
     
     public var repository: String {
         get {
-            return UserDefaults.standard.string(forKey: "scopegram.updateRepo") ?? "lonestill/telegram-macos"
+            return UserDefaults.standard.string(forKey: "scopegram.updateRepo") ?? "lonestill/scopeGram"
         }
         set {
             UserDefaults.standard.set(newValue, forKey: "scopegram.updateRepo")

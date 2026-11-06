@@ -89,11 +89,14 @@ jobs:
           if gh release download "$PRECOMPILED_TAG" -R "$GITHUB_REPOSITORY" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
             echo "==> Downloaded precompiled archive from $GITHUB_REPOSITORY"
             FOUND=1
-          elif gh release download "$PRECOMPILED_TAG" -R "lonestill/telegram-macos" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
-            echo "==> Downloaded precompiled archive from lonestill/telegram-macos"
+          elif gh release download "$PRECOMPILED_TAG" -R "lonestill/scopeGram" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
+            echo "==> Downloaded precompiled archive from lonestill/scopeGram"
             FOUND=1
-          elif curl -fL "https://github.com/lonestill/telegram-macos/releases/download/${PRECOMPILED_TAG}/precompiled-core-macos-arm64.tar.gz" -o "precompiled.tar.gz" 2>/dev/null; then
+          elif curl -fL "https://github.com/lonestill/scopeGram/releases/download/${PRECOMPILED_TAG}/precompiled-core-macos-arm64.tar.gz" -o "precompiled.tar.gz" 2>/dev/null; then
             echo "==> Downloaded precompiled archive via direct HTTPS URL"
+            FOUND=1
+          elif gh release download "$PRECOMPILED_TAG" -R "lonestill/telegram-macos" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
+            echo "==> Downloaded precompiled archive from upstream lonestill/telegram-macos"
             FOUND=1
           fi
 

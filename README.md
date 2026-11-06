@@ -4,7 +4,7 @@
   <p><strong>A fully native, feature-complete, and private Telegram client for macOS.</strong></p>
 
   <p>
-    <a href="https://github.com/lonestill/telegram-macos/releases"><img src="https://img.shields.io/github/v/release/lonestill/telegram-macos?style=flat-square&color=007AFF" alt="Latest Release"></a>
+    <a href="https://github.com/lonestill/scopeGram/releases"><img src="https://img.shields.io/github/v/release/lonestill/scopeGram?style=flat-square&color=007AFF" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/platform-macOS%2012.0%2B-blue?style=flat-square" alt="Platform macOS">
     <img src="https://img.shields.io/badge/architecture-Apple%20Silicon%20(arm64)-success?style=flat-square" alt="Architecture arm64">
     <img src="https://img.shields.io/badge/swift-5.9%2B-orange?style=flat-square" alt="Swift">
@@ -58,14 +58,14 @@ Unlike generic injected dylib solutions or Electron wrappers, **Scopegram is 100
 
 ### 🔄 Native GitHub Releases Updater
 - **No Vanilla Telegram Overwrite**: All connections to Telegram's official update servers and Sparkle feeds are decoupled to protect your custom build from being overwritten.
-- **Direct GitHub Updates**: Automatically checks `lonestill/telegram-macos` releases via GitHub REST API.
+- **Direct GitHub Updates**: Automatically checks `lonestill/scopeGram` releases via GitHub REST API.
 - **In-App Download**: Realtime progress indicator (`Downloading X MB / Y MB`) and 1-click DMG mounting on completion.
 
 ---
 
 ## 📦 Installation
 
-1. Download the latest **`Scopegram-macos-arm64.dmg`** from [Releases](https://github.com/lonestill/telegram-macos/releases).
+1. Download the latest **`Scopegram-macos-arm64.dmg`** from [Releases](https://github.com/lonestill/scopeGram/releases).
 2. Open the DMG image and drag **Scopegram.app** to your `/Applications` directory.
 3. Because Scopegram is an independent open-source release built with ad-hoc signing, macOS Gatekeeper may display a security notification on the first launch. If prompted, run this command in Terminal to clear the quarantine attribute:
    ```bash
@@ -87,8 +87,8 @@ Bypass compiling 12 heavy C++/Rust core frameworks (FFmpeg, WebRTC, OpenSSL, lib
 
 ```bash
 # 1. Clone repository with all submodules
-git clone --recurse-submodules https://github.com/lonestill/telegram-macos.git
-cd telegram-macos
+git clone --recurse-submodules https://github.com/lonestill/scopeGram.git
+cd scopeGram
 
 # 2. Download and unpack precompiled core frameworks
 sh scripts/download_precompiled.sh

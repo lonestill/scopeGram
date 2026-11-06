@@ -2,10 +2,10 @@ import Cocoa
 
 public final class ApiEnvironment {
     public static var apiId:Int32 {
-        return 9
+        return 29372075
     }
     public static var apiHash:String {
-        return "3975f648bb682ee889f35483bc618d1c"
+        return "9d732ca7ee8fc5a653d221eaa0c7afcb"
     }
     
     public static var bundleId: String {

@@ -5,7 +5,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 ROOT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
 TAG="${1:-precompiled-latest}"
-REPO="${2:-lonestill/telegram-macos}"
+REPO="${2:-lonestill/scopeGram}"
 URL="https://github.com/${REPO}/releases/download/${TAG}/precompiled-core-macos-arm64.tar.gz"
 
 echo "==> Downloading precompiled frameworks from ${URL}..."

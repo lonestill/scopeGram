@@ -5,7 +5,7 @@
 #include "common.xcconfig"
 
 DSA_PEM_FILE = dsa_pub.pem
-SFEED_URL = https:$(SIMPLE_SLASH)/raw.githubusercontent.com/lonestill/telegram-macos/master/appcast.xml
+SFEED_URL = https:$(SIMPLE_SLASH)/raw.githubusercontent.com/lonestill/scopeGram/master/appcast.xml
 SOURCE = DEBUG
 
 TYPE = -D'BETA'
