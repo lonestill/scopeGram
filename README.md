@@ -1,83 +1,128 @@
 <div align="center">
-  <img src="Telegram-Mac/Assets.xcassets/AppIcon.appiconset/Logo_1024.png"
-      width="125" 
-      height="125">
-  
-  <h2 align="center">Telegram for macOS</h2>
+  <img src="Telegram-Mac/Assets.xcassets/AppIcon.appiconset/Logo_1024.png" width="120" height="120" alt="Scopegram Logo">
+  <h1>Scopegram for macOS</h1>
+  <p><strong>A fully native, feature-complete, and private Telegram client for macOS.</strong></p>
+
+  <p>
+    <a href="https://github.com/lonestill/telegram-macos/releases"><img src="https://img.shields.io/github/v/release/lonestill/telegram-macos?style=flat-square&color=007AFF" alt="Latest Release"></a>
+    <img src="https://img.shields.io/badge/platform-macOS%2012.0%2B-blue?style=flat-square" alt="Platform macOS">
+    <img src="https://img.shields.io/badge/architecture-Apple%20Silicon%20(arm64)-success?style=flat-square" alt="Architecture arm64">
+    <img src="https://img.shields.io/badge/swift-5.9%2B-orange?style=flat-square" alt="Swift">
+    <img src="https://img.shields.io/badge/license-GPL--2.0-lightgrey?style=flat-square" alt="License GPL-2.0">
+    <img src="https://img.shields.io/badge/injection-zero%20(100%25%20native)-green?style=flat-square" alt="Zero Injection">
+  </p>
 </div>
 
-![Telegram macOS screenshot](images/tg.png)
+---
 
-[**Telegram**](https://telegram.org) is a messaging app with a focus on speed and security. It’s superfast, simple, and free! This repo contains the official source code for [Telegram for macOS](https://macos.telegram.org/).
+## ⚡ Overview
 
-## Get it
+**Scopegram** is a power-user Telegram client for macOS compiled directly from source. It unlocks complete freedom and privacy controls without compromising the buttery-smooth performance of the native Swift interface.
 
-[![Download on the Mac App Store](images/mas_badge.png)](https://itunes.apple.com/us/app/telegram/id747648890?mt=12)
+Unlike generic injected dylib solutions or Electron wrappers, **Scopegram is 100% native Swift & Objective-C++**: zero runtime hook injection, zero Frida overhead, zero memory instability, and full compatibility with macOS Sonoma & Sequoia.
 
-### Using `mas-cli`
+---
 
+## 🚀 Key Features
+
+### ⏱ Unlocked View-Once & Self-Destructing Media
+- **Direct Desktop Playback**: View-once photos and expiring videos render natively inside the desktop chat without showing the *"View on mobile device"* restriction placeholder.
+- **Permanent Availability**: Media does not burn or disappear after opening. Open and inspect self-destructing media anytime in full resolution.
+- **Copy & Save Protection Bypass**: Full keyboard shortcuts (`Cmd+C`), right-click menu, and gallery save buttons unlocked for secret/ephemeral media.
+- **No View Receipts**: Sender never receives a view receipt or timer trigger.
+
+### 🗑 Anti-Delete Message Protection
+- **Deleted Messages Retention**: Messages deleted by other participants stay visible in your chat log.
+- **Visual Badge**: Deleted messages display a clean, distinct red `🗑 deleted` indicator next to their timestamp.
+- **Session Persistence**: Deleted message registries persist across application restarts.
+
+### 📝 Message Edit History
+- **Revision Counter**: Edited messages display an edit counter badge on the bubble (e.g. `изменено (1)`, `изменено (2)`).
+- **History Inspector**: Right-click any edited message and select **История изменений** (Edit History) to view timestamped historical versions alongside the current text.
+
+### 👻 Ghost Mode & Stealth Privacy
+- **Don't Send Read Receipts**: Read incoming messages silently without marking them as read for the sender.
+- **Stealth Story Viewing**: Watch stories anonymously without your profile appearing in the viewer list.
+- **Typing Status Control**: Suppress typing indicators while composing messages.
+
+### 🔓 Channel & Content Restrictions Bypass
+- **Anti-Noforwards**: Copy text, save media, and forward messages freely even from protected channels and private groups with saving restrictions enabled.
+- **No Screen Recording Blockers**: Full window capture and screenshot freedom.
+
+### 🛡 Identity & UI Polishing
+- **AdBlock**: All Telegram sponsored messages and channel promotional banners are hidden.
+- **Accidental Call Protection**: Confirmation alert before initiating voice or video calls.
+- **Peer ID Display**: Numeric Peer ID displayed directly in user and group profiles with one-click copy to clipboard.
+- **Phone Number Masking**: Mask phone numbers as `+* *** ***-**-**` in user info and settings for screen-sharing and streaming privacy.
+- **Dedicated Settings Hub**: Comprehensive toggle interface under `Settings -> Scopegram Settings`.
+
+### 🔄 Native GitHub Releases Updater
+- **No Vanilla Telegram Overwrite**: All connections to Telegram's official update servers and Sparkle feeds are decoupled to protect your custom build from being overwritten.
+- **Direct GitHub Updates**: Automatically checks `lonestill/telegram-macos` releases via GitHub REST API.
+- **In-App Download**: Realtime progress indicator (`Downloading X MB / Y MB`) and 1-click DMG mounting on completion.
+
+---
+
+## 📦 Installation
+
+1. Download the latest **`Scopegram-macos-arm64.dmg`** from [Releases](https://github.com/lonestill/telegram-macos/releases).
+2. Open the DMG image and drag **Scopegram.app** to your `/Applications` directory.
+3. Because Scopegram is an independent open-source release built with ad-hoc signing, macOS Gatekeeper may display a security notification on the first launch. If prompted, run this command in Terminal to clear the quarantine attribute:
+   ```bash
+   xattr -cr /Applications/Scopegram.app
+   ```
+4. Launch **Scopegram** and log in!
+
+---
+
+## 🛠 Building from Source
+
+### Prerequisites
+- macOS 12.0+ (Apple Silicon arm64 recommended).
+- Xcode 15 or newer with Command Line Tools.
+- Homebrew & Python 3.
+
+### Option 1: Fast Build (~3–5 minutes)
+Bypass compiling 12 heavy C++/Rust core frameworks (FFmpeg, WebRTC, OpenSSL, libvpx, dav1d, etc.) by restoring precompiled binaries:
+
+```bash
+# 1. Clone repository with all submodules
+git clone --recurse-submodules https://github.com/lonestill/telegram-macos.git
+cd telegram-macos
+
+# 2. Download and unpack precompiled core frameworks
+sh scripts/download_precompiled.sh
+
+# 3. Build native Scopegram bundle
+python3 build_scopegram.py
 ```
-mas install 747648890
+
+### Option 2: Full Build from Scratch (~30–45 minutes)
+
+```bash
+# 1. Install build tools
+brew install cmake ninja meson nasm yasm openssl@3 zlib autoconf libtool automake pkg-config
+
+# 2. Setup build environment and compile all submodules
+sh scripts/setup_build_env.sh --build
+
+# 3. Compile and launch Scopegram
+python3 build_scopegram.py --run
 ```
 
-### Manual download
+---
 
-If you would like, you can [download the non-MAS version](https://telegram.org/dl/macos).
+## 🏗 Architecture
 
-You can also [download the beta version](https://telegram.org/dl/macos/beta) if you want to try the latest features and you are prepared for bugs and crashes. If you are running the beta, join the [beta testing chat on Telegram](https://t.me/macswift) to report bugs.
+Scopegram is organized into a modular Swift Package Manager (SPM) architecture:
+- `Telegram-Mac/`: App lifecycle, menu hooks, window orchestration, and native update manager (`ScopegramUpdateManager`).
+- `packages/`: Over 90 modular Swift packages (`ChatUI`, `GalleryUI`, `SettingsUI`, `PeerInfoUI`, `MessageUtils`, `TGUIKit`).
+- `submodules/telegram-ios/`: Core network layers, MTProto engine, and state machine (`TelegramCore`, `Postbox`, `SSignalKit`).
+- `core-xprojects/`: Hardware-accelerated media decoders and telephony engines (FFmpeg, WebRTC/tg_owt, Opus, OpenH264).
 
-## Contributors
+---
 
-### Contributors on GitHub
-See [this repository’s contributors graph](https://github.com/macosswift/telegram/graphs/contributors).
+## ⚖️ License & Disclaimer
 
-### Bugs and Suggestions
-You can report bug or suggestions feature for Telegram for macOS on [Telegram’s Bugs & Suggestions platform](https://bugs.telegram.org). Read [the platform tip](https://bugs.telegram.org/c/746) before creating first card.
-
-### Translations
-You can help translate Telegram for macOS on [Telegram’s translations platform](https://translations.telegram.org). Pick your language, then look for the macOS translation set.
-
-<!--### Third-party libraries-->
-<!--See [LIBRARIES](LIBRARIES.md).-->
-
-## Permissions
-Telegram strives to protect your privacy.  This app asks for as few permissions as possible:
-
-* **Microphone**: You can send voice messages and make audio calls with Telegram.
-* **Camera**: You can set your profile picture using your Mac’s iSight camera.
-* **Location**: You can send your location to friends.
-* **Outgoing network connections**: Telegram needs to connect to the internet to send your messages to your friends.
-* **Incoming network connections**: Telegram needs to accept incoming connections for peer-to-peer voice calls.
-* **User-selected files**: You can save files or images to your Mac.
-* **Downloads folder**: Telegram can automatically download files or images you receive.
-
-## Shortcuts
-With [Shortcuts](https://github.com/macosswift/telegram/wiki) you can learn how easy is navigate using your devices.
-
-## License
-Telegram for macOS is licensed under the GNU Public License, version 2.0. See [LICENSE](LICENSE) for more information.
-
-## Forking
-You can fork this application and make something awesome! Make sure that your fork follows these five requirements:
-
-1. **Do** [get your own API ID](https://core.telegram.org/api/obtaining_api_id).
-2. **Don’t** call your fork **Telegram** — or at least make sure your users understand that yours is unofficial.
-3. **Don’t** use our standard logo (white paper plane in a blue circle) for your fork.
-3. **Do** read and follow our [security guidelines](https://core.telegram.org/mtproto/security_guidelines) to make sure you take good care of your users’ data and protect their privacy.
-4. **Do** publish your code. The [GPL license](LICENSE) requires it!
-
-## How to Build
-
-Quick start (full details, requirements and troubleshooting are in [INSTALL.md](INSTALL.md)):
-
-1. Install Xcode 16 or newer, Homebrew and a Rust toolchain (rustup). On Xcode 27, apply the local changes in
-   [XCODE27.md](XCODE27.md) first: it supports macOS 12.0 and newer only, and the project targets 10.13.
-2. Clone with submodules:
-   ```
-   git clone --recurse-submodules https://github.com/macosswift/telegram.git
-   ```
-3. Prepare the machine and build the native libraries once:
-   ```
-   sh scripts/setup_build_env.sh --build
-   ```
-4. Open `Telegram-Mac.xcworkspace` in Xcode and build the `Telegram` scheme.
+- Scopegram is licensed under the **GNU General Public License v2.0** ([LICENSE](LICENSE)).
+- This project is an independent fork of the open-source Telegram for macOS client. It is not affiliated with, endorsed by, or sponsored by Telegram FZ-LLC. All product names, logos, and brands are property of their respective owners.
