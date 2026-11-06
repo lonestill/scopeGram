@@ -108,6 +108,18 @@ protocol PremiumStatusRenderHost: AnyObject {
     func statusDidUpdate()
 }
 
+private func generateScopegramBadge(size: NSSize, background: NSColor, checkmark: NSColor, left: Bool) -> CGImage? {
+    return generateImage(size, contextGenerator: { size, ctx in
+        ctx.clear(CGRect(origin: .zero, size: size))
+        let template = TelegramThemeHooks.shared.image(left ? .iconVerifiedTelegram : .iconVerifyDialog)
+        let checkImage = template.precomposed(checkmark)
+        ctx.setFillColor(background.cgColor)
+        let inset: CGFloat = size.width >= 20 ? 4 : 3
+        ctx.fillEllipse(in: CGRect(x: inset, y: inset, width: size.width - inset * 2, height: size.height - inset * 2))
+        ctx.draw(checkImage, in: CGRect(origin: .zero, size: size))
+    })
+}
+
 final class PremiumStatusRenderer {
     private final class StatusConfiguration {
         let account: ObjectIdentifier
@@ -196,7 +208,17 @@ final class PremiumStatusRenderer {
         }
         host.statusHostLayer?.opacity = color != nil && peer.emojiStatus != nil ? 0.4 : 1
 
-        if (peer.isFake || peer.isScam || peer.isPremium || peer.isVerified) && !left, ((peer.isPremium && peer.emojiStatus == nil) || !peer.isPremium || peer.isFake || peer.isScam || peer.isVerified) && !left  {
+        let peerRawId = peer.id.id._internalGetInt64Value()
+        let isLocalVerified = LocalTelegramBadges.shared.isVerified(id: peerRawId)
+        let isLocalScam = LocalTelegramBadges.shared.isScam(id: peerRawId)
+        let isLocalFake = LocalTelegramBadges.shared.isFake(id: peerRawId)
+        
+        let isVerified = peer.isVerified || isLocalVerified
+        let isScam = peer.isScam || isLocalScam
+        let isFake = peer.isFake || isLocalFake
+        let scopegramBadge = ScopegramBadges.shared.badge(for: peer)
+
+        if (isFake || isScam || peer.isPremium || isVerified || scopegramBadge != nil) && !left, ((peer.isPremium && peer.emojiStatus == nil) || !peer.isPremium || isFake || isScam || isVerified || scopegramBadge != nil) && !left  {
 
             let current: SimpleLayer
             if let layer = self.imageLayer {
@@ -209,11 +231,23 @@ final class PremiumStatusRenderer {
             }
             let image: CGImage?
             
-            if peer.isVerified {
+            if let badge = scopegramBadge {
+                let badgeSize = isBig ? NSMakeSize(20, 20) : NSMakeSize(16, 16)
+                switch badge {
+                case .developer, .official:
+                    let goldBg = NSColor(red: 0.98, green: 0.72, blue: 0.05, alpha: 1.0)
+                    let goldUnder = theme.colors.underSelectedColor
+                    image = isSelected ? generateScopegramBadge(size: badgeSize, background: goldUnder, checkmark: goldBg, left: left) : generateScopegramBadge(size: badgeSize, background: goldBg, checkmark: .white, left: left)
+                case .supporter:
+                    let supBg = NSColor(red: 0.58, green: 0.35, blue: 0.96, alpha: 1.0)
+                    let supUnder = theme.colors.underSelectedColor
+                    image = isSelected ? generateScopegramBadge(size: badgeSize, background: supUnder, checkmark: supBg, left: left) : generateScopegramBadge(size: badgeSize, background: supBg, checkmark: .white, left: left)
+                }
+            } else if isVerified {
                 image = isSelected ? (left ? theme.icons.verify_dialog_active_left : theme.icons.verifyDialogActive) : (left ? theme.icons.verify_dialog_left : theme.icons.verifyDialog)
-            } else if peer.isScam {
+            } else if isScam {
                 image = isSelected ? theme.icons.scamActive : theme.icons.scam
-            } else if peer.isFake {
+            } else if isFake {
                 image = isSelected ? theme.icons.fakeActive : theme.icons.fake
             } else if peer.isPremium {
                 if isBig {
@@ -441,6 +475,19 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
     
     public func set(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, color: NSColor?, isSelected: Bool, isBig: Bool, animated: Bool, playTwice: Bool = true, isLite: Bool, autoupdate: Bool = true) {
         renderer.set(peer, account: account, inlinePacksContext: inlinePacksContext, left: left, color: color, isSelected: isSelected, isBig: isBig, animated: animated, playTwice: playTwice, isLite: isLite, autoupdate: autoupdate)
+        
+        if let badge = ScopegramBadges.shared.badge(for: peer) {
+            self.userInteractionEnabled = true
+            self.appTooltip = badge.title
+            self.set(handler: { [weak self] _ in
+                guard let self = self, let window = self.window as? Window else { return }
+                showModalText(for: window, text: badge.description, title: badge.title)
+            }, for: .Click)
+        } else {
+            self.userInteractionEnabled = false
+            self.appTooltip = nil
+            self.removeAllHandlers()
+        }
     }
     
     @objc public func updateAnimatableContent() -> Void {
@@ -478,7 +525,10 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
     
     public static func control(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, isSelected: Bool, isBig: Bool = false, playTwice: Bool = false, color: NSColor? = nil, cached: PremiumStatusControl?, animated: Bool, autoupdate: Bool = true) -> PremiumStatusControl? {
         var current: PremiumStatusControl? = nil
-        if (peer.isVerified || peer.isScam || peer.isFake || peer.isPremium || peer.emojiStatus != nil) && !left || (left && peer.verificationIconFileId != nil) {
+        let peerRawId = peer.id.id._internalGetInt64Value()
+        let hasLocal = LocalTelegramBadges.shared.isVerified(id: peerRawId) || LocalTelegramBadges.shared.isScam(id: peerRawId) || LocalTelegramBadges.shared.isFake(id: peerRawId)
+        let hasScopegram = ScopegramBadges.shared.badge(for: peer) != nil
+        if (peer.isVerified || peer.isScam || peer.isFake || peer.isPremium || peer.emojiStatus != nil || hasLocal || hasScopegram) && !left || (left && peer.verificationIconFileId != nil) {
             current = cached ?? PremiumStatusControl(frame: .zero)
         }
                 
@@ -487,15 +537,26 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
     }
     
     public static func hasControl(_ peer: Peer, left: Bool) -> Bool {
+        let peerRawId = peer.id.id._internalGetInt64Value()
+        let hasLocal = LocalTelegramBadges.shared.isVerified(id: peerRawId) || LocalTelegramBadges.shared.isScam(id: peerRawId) || LocalTelegramBadges.shared.isFake(id: peerRawId)
+        let hasScopegram = ScopegramBadges.shared.badge(for: peer) != nil
+        if (hasScopegram || hasLocal) && !left {
+            return true
+        }
         return (peer.isVerified || peer.isScam || peer.isFake || peer.isPremium || peer.emojiStatus != nil) && !left || (left && peer.verificationIconFileId != nil)
     }
     public static func controlSize(_ peer: Peer, _ isBig: Bool, left: Bool) -> NSSize? {
         if hasControl(peer, left: left) {
+            let peerRawId = peer.id.id._internalGetInt64Value()
+            let isScam = peer.isScam || LocalTelegramBadges.shared.isScam(id: peerRawId)
+            let isFake = peer.isFake || LocalTelegramBadges.shared.isFake(id: peerRawId)
+            let isVerified = peer.isVerified || LocalTelegramBadges.shared.isVerified(id: peerRawId)
+            
             var addition: NSSize = .zero
-            if peer.isScam || peer.isFake {
+            if isScam || isFake {
                 addition.width += 20
             }
-            if peer.isVerified && peer.emojiStatus != nil, !left {
+            if isVerified && peer.emojiStatus != nil, !left {
                 addition.width += 18
             }
             return isBig ? NSMakeSize(20 + addition.width, 20 + addition.height) : NSMakeSize(16 + addition.width, 16 + addition.height)

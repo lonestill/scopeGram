@@ -9,6 +9,7 @@ import TelegramTheme
 import ColorPalette
 import TelegramUtils
 import InAppSettings
+import AlertsUI
 
 // MARK: - Root Scopegram Settings (Categories Hub)
 
@@ -70,13 +71,23 @@ public func ScopegramSettingsController(context: any AccountContextProtocol) -> 
             name: "Clean UI & Ads",
             color: theme.colors.text,
             type: .nextContext("Channel AdBlock, Dev Tweaks"),
-            viewType: .lastItem,
+            viewType: .innerItem,
             action: {
                 pushCategory(ScopegramExperimentalSettingsController(context: context))
             }
         )),
         
-        .desc(sectionId: 0, index: 6, text: .plain("Select a category above to configure Scopegram client features."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)),
+        .general(sectionId: 0, index: 6, value: .none, error: nil, identifier: InputDataIdentifier("cat_badges"), data: .init(
+            name: "Badge Manager",
+            color: theme.colors.text,
+            type: .nextContext("Verified, Fake, Scam & Official"),
+            viewType: .lastItem,
+            action: {
+                pushCategory(ScopegramLocalBadgesController(context: context))
+            }
+        )),
+        
+        .desc(sectionId: 0, index: 7, text: .plain("Select a category above to configure Scopegram client features."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)),
         
         .sectionId(1, type: .normal),
         .desc(sectionId: 1, index: 7, text: .plain("CLIENT INFO"), data: .init(color: theme.colors.listGrayText, viewType: .textTopItem)),
@@ -88,7 +99,19 @@ public func ScopegramSettingsController(context: any AccountContextProtocol) -> 
             viewType: .firstItem
         )),
         
-        .general(sectionId: 1, index: 9, value: .none, error: nil, identifier: InputDataIdentifier("scopegram_github"), data: .init(
+        .general(sectionId: 1, index: 9, value: .none, error: nil, identifier: InputDataIdentifier("scopegram_channel"), data: .init(
+            name: "Official Channel",
+            color: theme.colors.text,
+            type: .nextContext("@scopegramapp"),
+            viewType: .innerItem,
+            action: {
+                if let url = URL(string: "https://t.me/scopegramapp") {
+                    NSWorkspace.shared.open(url)
+                }
+            }
+        )),
+        
+        .general(sectionId: 1, index: 10, value: .none, error: nil, identifier: InputDataIdentifier("scopegram_github"), data: .init(
             name: "GitHub Repository",
             color: theme.colors.text,
             type: .nextContext("lonestill/scopeGram"),
@@ -100,7 +123,7 @@ public func ScopegramSettingsController(context: any AccountContextProtocol) -> 
             }
         )),
         
-        .general(sectionId: 1, index: 10, value: .none, error: nil, identifier: InputDataIdentifier("scopegram_check_updates"), data: .init(
+        .general(sectionId: 1, index: 11, value: .none, error: nil, identifier: InputDataIdentifier("scopegram_check_updates"), data: .init(
             name: "Check for Updates",
             color: theme.colors.accent,
             type: .next,
@@ -552,6 +575,295 @@ public func ScopegramExperimentalSettingsController(context: any AccountContextP
     }
     
     let controller = InputDataController(dataSignal: signal, title: "Clean UI & Ads", removeAfterDisappear: false, hasDone: false, identifier: "scopegram_experimental")
+    controller.onDeinit = {
+        actionsDisposable.dispose()
+    }
+    return controller
+}
+
+// MARK: - Category 6: Badge Manager (Verified / Fake / Scam & Official Badges)
+
+public func ScopegramLocalBadgesController(context: any AccountContextProtocol) -> InputDataController {
+    let actionsDisposable = DisposableSet()
+    
+    struct State: Equatable {
+        var inputId: String
+        var selectedKind: LocalTelegramBadgeKind
+        var badges: [(id: Int64, kind: LocalTelegramBadgeKind)]
+        
+        static func == (lhs: State, rhs: State) -> Bool {
+            if lhs.inputId != rhs.inputId || lhs.selectedKind != rhs.selectedKind || lhs.badges.count != rhs.badges.count {
+                return false
+            }
+            for i in 0..<lhs.badges.count {
+                if lhs.badges[i].id != rhs.badges[i].id || lhs.badges[i].kind != rhs.badges[i].kind {
+                    return false
+                }
+            }
+            return true
+        }
+    }
+    
+    let initialState = State(
+        inputId: "",
+        selectedKind: .verified,
+        badges: LocalTelegramBadges.shared.allBadges().sorted(by: { $0.id < $1.id })
+    )
+    
+    let statePromise = ValuePromise(initialState, ignoreRepeated: true)
+    let stateValue = Atomic(value: initialState)
+    let updateState: ((State) -> State) -> Void = { f in
+        statePromise.set(stateValue.modify(f))
+    }
+    
+    let _id_input_badge_id = InputDataIdentifier("badge_input_id")
+    
+    let cycleBadgeKind: () -> Void = {
+        updateState { current in
+            var current = current
+            switch current.selectedKind {
+            case .verified:
+                current.selectedKind = .fake
+            case .fake:
+                current.selectedKind = .scam
+            case .scam:
+                current.selectedKind = .verified
+            }
+            return current
+        }
+    }
+    
+    let assignBadgeAction: () -> Void = {
+        let rawInput = stateValue.with { $0.inputId }.trimmingCharacters(in: .whitespacesAndNewlines)
+        var clean = rawInput
+        if clean.hasPrefix("-100") {
+            clean = String(clean.dropFirst(4))
+        } else if clean.hasPrefix("-") {
+            clean = String(clean.dropFirst(1))
+        }
+        guard let id = Int64(clean), id > 0 else {
+            alert(for: context.window, info: "Введите корректный числовой ID аккаунта или канала.")
+            return
+        }
+        let kind = stateValue.with { $0.selectedKind }
+        LocalTelegramBadges.shared.assign(id: id, kind: kind)
+        updateState { current in
+            var current = current
+            current.inputId = ""
+            current.badges = LocalTelegramBadges.shared.allBadges().sorted(by: { $0.id < $1.id })
+            return current
+        }
+        showModalText(for: context.window, text: "Бейдж '\(kind.title)' успешно назначен для ID \(id)!")
+    }
+    
+    let removeBadgeAction: (Int64) -> Void = { targetId in
+        verifyAlert(for: context.window, header: "Scopegram", information: "Удалить локальный бейдж для ID \(targetId)?", ok: "Удалить", cancel: "Отмена", successHandler: { _ in
+            LocalTelegramBadges.shared.remove(id: targetId)
+            updateState { current in
+                var current = current
+                current.badges = LocalTelegramBadges.shared.allBadges().sorted(by: { $0.id < $1.id })
+                return current
+            }
+            showModalText(for: context.window, text: "Бейдж для ID \(targetId) удалён.")
+        })
+    }
+    
+    let syncOfficialBadges: () -> Void = {
+        ScopegramBadges.shared.syncWithRemote()
+        showModalText(for: context.window, text: "Запрос на синхронизацию с GitHub badges.json отправлен!")
+    }
+    
+    let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
+        var entries: [InputDataEntry] = []
+        var sectionId: Int32 = 0
+        var index: Int32 = 0
+        
+        // Section 0: Assign New Local Badge
+        entries.append(.sectionId(sectionId, type: .normal))
+        entries.append(.desc(sectionId: sectionId, index: index, text: .plain("ASSIGN LOCAL TELEGRAM BADGE"), data: .init(color: theme.colors.listGrayText, viewType: .textTopItem)))
+        index += 1
+        
+        entries.append(.input(
+            sectionId: sectionId,
+            index: index,
+            value: .string(state.inputId),
+            error: nil,
+            identifier: _id_input_badge_id,
+            mode: .plain,
+            data: InputDataRowData(viewType: .firstItem),
+            placeholder: nil,
+            inputPlaceholder: "Enter Account / Channel ID (e.g. 123456789)",
+            filter: { text in
+                text.trimmingCharacters(in: CharacterSet(charactersIn: "0123456789-").inverted)
+            },
+            limit: 24
+        ))
+        index += 1
+        
+        entries.append(.general(
+            sectionId: sectionId,
+            index: index,
+            value: .none,
+            error: nil,
+            identifier: InputDataIdentifier("badge_type_toggle"),
+            data: .init(
+                name: "Badge Type",
+                color: theme.colors.text,
+                type: .nextContext(state.selectedKind.title),
+                viewType: .innerItem,
+                action: cycleBadgeKind
+            )
+        ))
+        index += 1
+        
+        entries.append(.general(
+            sectionId: sectionId,
+            index: index,
+            value: .none,
+            error: nil,
+            identifier: InputDataIdentifier("badge_assign_btn"),
+            data: .init(
+                name: "Assign Badge",
+                color: theme.colors.accent,
+                type: .next,
+                viewType: .lastItem,
+                action: assignBadgeAction
+            )
+        ))
+        index += 1
+        
+        entries.append(.desc(sectionId: sectionId, index: index, text: .plain("Locally renders Verified (blue checkmark), Fake tag, or Scam tag for any user or channel by numeric ID. Works 100% client-side without network requests."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
+        index += 1
+        sectionId += 1
+        
+        // Section 1: Active Local Badges List
+        entries.append(.sectionId(sectionId, type: .normal))
+        entries.append(.desc(sectionId: sectionId, index: index, text: .plain("ACTIVE LOCAL BADGES (\(state.badges.count))"), data: .init(color: theme.colors.listGrayText, viewType: .textTopItem)))
+        index += 1
+        
+        if state.badges.isEmpty {
+            entries.append(.general(
+                sectionId: sectionId,
+                index: index,
+                value: .none,
+                error: nil,
+                identifier: InputDataIdentifier("no_badges_row"),
+                data: .init(
+                    name: "No Local Badges",
+                    color: theme.colors.listGrayText,
+                    type: .context("Empty"),
+                    viewType: .singleItem
+                )
+            ))
+            index += 1
+        } else {
+            for (idx, item) in state.badges.enumerated() {
+                let viewType: GeneralViewType
+                if state.badges.count == 1 {
+                    viewType = .singleItem
+                } else if idx == 0 {
+                    viewType = .firstItem
+                } else if idx == state.badges.count - 1 {
+                    viewType = .lastItem
+                } else {
+                    viewType = .innerItem
+                }
+                
+                let badgeColor: NSColor
+                switch item.kind {
+                case .verified:
+                    badgeColor = theme.colors.accent
+                case .fake, .scam:
+                    badgeColor = theme.colors.redUI
+                }
+                
+                entries.append(.general(
+                    sectionId: sectionId,
+                    index: index,
+                    value: .none,
+                    error: nil,
+                    identifier: InputDataIdentifier("badge_row_\(item.id)"),
+                    data: .init(
+                        name: "ID: \(item.id)",
+                        color: theme.colors.text,
+                        type: .contextColored(item.kind.title, badgeColor),
+                        viewType: viewType,
+                        action: {
+                            removeBadgeAction(item.id)
+                        }
+                    )
+                ))
+                index += 1
+            }
+        }
+        
+        entries.append(.desc(sectionId: sectionId, index: index, text: .plain("Click on any active local badge above to delete it."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
+        index += 1
+        sectionId += 1
+        
+        // Section 2: Official Badges (Developer & Supporter synced from GitHub)
+        entries.append(.sectionId(sectionId, type: .normal))
+        entries.append(.desc(sectionId: sectionId, index: index, text: .plain("OFFICIAL SCOPEGRAM BADGES"), data: .init(color: theme.colors.listGrayText, viewType: .textTopItem)))
+        index += 1
+        
+        entries.append(.general(
+            sectionId: sectionId,
+            index: index,
+            value: .none,
+            error: nil,
+            identifier: InputDataIdentifier("official_badges_info"),
+            data: .init(
+                name: "Developer & Supporter",
+                color: theme.colors.text,
+                type: .context("GitHub Controlled"),
+                viewType: .firstItem
+            )
+        ))
+        index += 1
+        
+        entries.append(.general(
+            sectionId: sectionId,
+            index: index,
+            value: .none,
+            error: nil,
+            identifier: InputDataIdentifier("official_badges_sync"),
+            data: .init(
+                name: "Sync from GitHub",
+                color: theme.colors.accent,
+                type: .next,
+                viewType: .lastItem,
+                action: syncOfficialBadges
+            )
+        ))
+        index += 1
+        
+        entries.append(.desc(sectionId: sectionId, index: index, text: .plain("Official Developer (gold) and Supporter (violet) badges are managed strictly by the developer via badges.json in the GitHub repository. Clicking an official badge in chat displays an interactive verification card."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
+        index += 1
+        sectionId += 1
+        entries.append(.sectionId(sectionId, type: .normal))
+        
+        return InputDataSignalValue(entries: entries)
+    }
+    
+    let controller = InputDataController(
+        dataSignal: signal,
+        title: "Badge Manager",
+        validateData: { _ in .none },
+        updateDatas: { data in
+            updateState { current in
+                var current = current
+                if let inputVal = data[_id_input_badge_id]?.stringValue {
+                    current.inputId = inputVal
+                }
+                return current
+            }
+            return .none
+        },
+        removeAfterDisappear: false,
+        hasDone: false,
+        identifier: "scopegram_badges"
+    )
+    
     controller.onDeinit = {
         actionsDisposable.dispose()
     }

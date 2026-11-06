@@ -4,6 +4,7 @@
   <p><strong>A fully native, feature-complete, and private Telegram client for macOS.</strong></p>
 
   <p>
+    <a href="https://t.me/scopegramapp"><img src="https://img.shields.io/badge/telegram-@scopegramapp-0088cc?style=flat-square&logo=telegram" alt="Telegram Channel"></a>
     <a href="https://github.com/lonestill/scopeGram/releases"><img src="https://img.shields.io/github/v/release/lonestill/scopeGram?style=flat-square&color=007AFF" alt="Latest Release"></a>
     <img src="https://img.shields.io/badge/platform-macOS%2012.0%2B-blue?style=flat-square" alt="Platform macOS">
     <img src="https://img.shields.io/badge/architecture-Apple%20Silicon%20(arm64)-success?style=flat-square" alt="Architecture arm64">
