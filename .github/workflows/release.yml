@@ -93,7 +93,41 @@ jobs:
           rustup toolchain install stable --profile minimal
           rustup default stable
 
+      - name: Restore native framework cache
+        id: native-cache
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            core-xprojects/OpenH264/build
+            core-xprojects/OpenSSLEncryption/build
+            core-xprojects/OpenSSL/build
+            core-xprojects/openssl/build
+            core-xprojects/libopus/build
+            core-xprojects/libvpx/build
+            core-xprojects/mozjpeg/build
+            core-xprojects/Mozjpeg/build
+            core-xprojects/libwebp/build
+            core-xprojects/dav1d/build
+            core-xprojects/ffmpeg/build
+            core-xprojects/webrtc/build
+            core-xprojects/tde2e/build
+            core-xprojects/wallet-engine/build
+            core-xprojects/mtproto-engine/build
+            packages/WalletEngine/wallet_engineFFI.xcframework
+            submodules/telegram-ios/submodules/MTProtoRustEngine/MTProtoEngineFFI.xcframework
+            submodules/telegram-ios/submodules/OpusBinding/SharedHeaders
+            submodules/telegram-ios/submodules/FFMpegBinding/SharedHeaders
+            submodules/tgcalls/SharedHeaders
+            submodules/libwebp/SharedHeaders
+            submodules/telegram-ios/submodules/OpenSSLEncryptionProvider/SharedHeaders
+            submodules/Mozjpeg/SharedHeaders
+            submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders
+          key: scopegram-native-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('scripts/setup_build_env.sh', 'scripts/configure_frameworks.sh', 'core-xprojects/**/*.sh', 'core-xprojects/**/*.py', 'core-xprojects/**/CMakeLists.txt', 'submodules/**/Cargo.lock') }}
+          restore-keys: |
+            scopegram-native-${{ runner.os }}-${{ runner.arch }}-
+
       - name: Restore precompiled native frameworks
+        if: steps.native-cache.outputs.cache-matched-key == ''
         id: precompiled
         env:
           GH_TOKEN: ${{ github.token }}
@@ -112,17 +146,47 @@ jobs:
           fi
 
       - name: Build native frameworks from source
-        if: steps.precompiled.outputs.restored != 'true'
+        if: steps.native-cache.outputs.cache-matched-key == '' && steps.precompiled.outputs.restored != 'true'
         env:
           CMAKE_POLICY_VERSION_MINIMUM: "3.5"
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
         run: sh scripts/setup_build_env.sh --build
 
+      - name: Save native framework cache
+        if: steps.native-cache.outputs.cache-matched-key == '' && steps.precompiled.outputs.restored != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            core-xprojects/OpenH264/build
+            core-xprojects/OpenSSLEncryption/build
+            core-xprojects/OpenSSL/build
+            core-xprojects/openssl/build
+            core-xprojects/libopus/build
+            core-xprojects/libvpx/build
+            core-xprojects/mozjpeg/build
+            core-xprojects/Mozjpeg/build
+            core-xprojects/libwebp/build
+            core-xprojects/dav1d/build
+            core-xprojects/ffmpeg/build
+            core-xprojects/webrtc/build
+            core-xprojects/tde2e/build
+            core-xprojects/wallet-engine/build
+            core-xprojects/mtproto-engine/build
+            packages/WalletEngine/wallet_engineFFI.xcframework
+            submodules/telegram-ios/submodules/MTProtoRustEngine/MTProtoEngineFFI.xcframework
+            submodules/telegram-ios/submodules/OpusBinding/SharedHeaders
+            submodules/telegram-ios/submodules/FFMpegBinding/SharedHeaders
+            submodules/tgcalls/SharedHeaders
+            submodules/libwebp/SharedHeaders
+            submodules/telegram-ios/submodules/OpenSSLEncryptionProvider/SharedHeaders
+            submodules/Mozjpeg/SharedHeaders
+            submodules/telegram-ios/third-party/td/TdBinding/SharedHeaders
+          key: ${{ steps.native-cache.outputs.cache-primary-key }}
+
       - name: Prepare generated sources
         run: |
           python3 scripts/prepare-telegram-api.py
           python3 scripts/prepare-flat-serialization.py
-          sh scripts/sync-headers.sh
           sh scripts/xcode27.sh apply || true
 
       - name: Build Scopegram
