@@ -583,6 +583,15 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
             let isScam = peer.isScam || localBadge == .scam
             let isFake = peer.isFake || localBadge == .fake
             let isVerified = peer.isVerified || localBadge == .verified
+            let hasNativeStatus = isVerified || isScam || isFake || peer.isPremium || peer.emojiStatus != nil || (left && peer.verificationIconFileId != nil)
+            let side: CGFloat = isBig ? 20 : 16
+            let hasScopegramBadge = ScopegramBadges.shared.badge(for: peer) != nil && !left
+
+            // A Scopegram-only peer must not reserve an empty native-status
+            // slot before its badge.
+            if hasScopegramBadge && !hasNativeStatus {
+                return NSMakeSize(side, side)
+            }
             
             var addition: NSSize = .zero
             if isScam || isFake {
@@ -591,10 +600,10 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
             if isVerified && peer.emojiStatus != nil, !left {
                 addition.width += 18
             }
-            if ScopegramBadges.shared.badge(for: peer) != nil, !left {
+            if hasScopegramBadge {
                 addition.width += (isBig ? 22 : 18)
             }
-            return isBig ? NSMakeSize(20 + addition.width, 20 + addition.height) : NSMakeSize(16 + addition.width, 16 + addition.height)
+            return NSMakeSize(side + addition.width, side + addition.height)
         } else {
             return nil
         }

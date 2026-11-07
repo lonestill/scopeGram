@@ -12,6 +12,7 @@ import ColorPalette
 import TelegramUtils
 import InAppSettings
 import AlertsUI
+import LocalAnimations
 
 // MARK: - Root Scopegram Settings (Categories Hub)
 
@@ -27,6 +28,9 @@ public func ScopegramSettingsController(context: any AccountContextProtocol) -> 
     
     let entries: [InputDataEntry] = [
         .sectionId(0, type: .normal),
+        .custom(sectionId: 0, index: -1, value: .none, identifier: InputDataIdentifier("scopegram_modicon"), equatable: nil, comparable: nil, item: { initialSize, stableId in
+            SettingsHooks.shared.makeStickerHeaderItem(initialSize, stableId, context, .scopegram_modicon, .init(), .singleItem, true)
+        }),
         .desc(sectionId: 0, index: 0, text: .plain("CATEGORIES"), data: .init(color: theme.colors.listGrayText, viewType: .textTopItem)),
         
         .general(sectionId: 0, index: 1, value: .none, error: nil, identifier: InputDataIdentifier("cat_ghost"), data: .init(

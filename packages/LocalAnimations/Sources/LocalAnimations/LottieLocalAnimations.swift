@@ -423,6 +423,7 @@ public enum LocalAnimatedSticker : String {
     case scopegram_developer
     case scopegram_supporter
     case scopegram_channel
+    case scopegram_modicon
     
     public var file: TelegramMediaFile {
         let resource:LocalBundleResource = LocalBundleResource(name: self.rawValue, ext: "tgs")

@@ -9,7 +9,7 @@ import shutil
 WORKSPACE_DIR = os.path.dirname(os.path.abspath(__file__))
 LOG_FILE = os.path.join(WORKSPACE_DIR, "build.log")
 ERROR_LOG_FILE = os.path.join(WORKSPACE_DIR, "build_last_error.log")
-SYMLINK_PATH = "/Users/a123/.gemini/antigravity/scratch/Scopegram.app"
+OUTPUT_APP = "/Users/a123/.gemini/antigravity/scratch/Scopegram.app"
 DERIVED_DATA_APP = "/Users/a123/Library/Developer/Xcode/DerivedData/Telegram-Mac-cxxtmrdbuiplylgbblwrshrmlrkz/Build/Products/Debug/Telegram.app"
 
 # ANSI Colors
@@ -164,19 +164,22 @@ def main():
         else:
             print(f"{YELLOW}Warning: codesign returned {sign_res.returncode}: {sign_res.stderr.strip()}{RESET}")
 
-        # Symlink
+        # Keep a real Scopegram.app bundle. Launching a symlink to Telegram.app
+        # makes macOS resolve the original bundle name for the Dock label.
         if os.path.exists(DERIVED_DATA_APP):
             try:
-                if os.path.islink(SYMLINK_PATH) or os.path.exists(SYMLINK_PATH):
-                    os.remove(SYMLINK_PATH)
-                os.symlink(DERIVED_DATA_APP, SYMLINK_PATH)
-                print(f"{GREEN}✓ Symlinked to: {SYMLINK_PATH}{RESET}")
+                if os.path.islink(OUTPUT_APP):
+                    os.remove(OUTPUT_APP)
+                elif os.path.exists(OUTPUT_APP):
+                    shutil.rmtree(OUTPUT_APP)
+                shutil.copytree(DERIVED_DATA_APP, OUTPUT_APP, symlinks=True)
+                print(f"{GREEN}✓ Copied bundle to: {OUTPUT_APP}{RESET}")
             except Exception as e:
-                print(f"{YELLOW}Symlink error: {e}{RESET}")
+                print(f"{YELLOW}Bundle copy error: {e}{RESET}")
 
         print(f"\n{BOLD}===================================================={RESET}")
         print(f"{BOLD}{GREEN}🎉 SCOPEGRAM IS READY!{RESET}")
-        print(f"   Bundle: {BOLD}{SYMLINK_PATH}{RESET}")
+        print(f"   Bundle: {BOLD}{OUTPUT_APP}{RESET}")
         print(f"   Target: {DERIVED_DATA_APP}")
         print(f"   Time:   {total_time:.1f}s")
         print(f"   Log:    {LOG_FILE}")
@@ -184,9 +187,9 @@ def main():
 
         if auto_run:
             print(f"{CYAN}Launching Scopegram...{RESET}")
-            subprocess.run(["open", SYMLINK_PATH])
+            subprocess.run(["open", OUTPUT_APP])
         else:
-            print(f"To launch: {CYAN}open {SYMLINK_PATH}{RESET}\n")
+            print(f"To launch: {CYAN}open {OUTPUT_APP}{RESET}\n")
 
         return 0
     else:
