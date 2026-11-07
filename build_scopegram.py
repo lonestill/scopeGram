@@ -11,6 +11,7 @@ LOG_FILE = os.path.join(WORKSPACE_DIR, "build.log")
 ERROR_LOG_FILE = os.path.join(WORKSPACE_DIR, "build_last_error.log")
 OUTPUT_APP = "/Users/a123/.gemini/antigravity/scratch/Scopegram.app"
 DERIVED_DATA_APP = "/Users/a123/Library/Developer/Xcode/DerivedData/Telegram-Mac-cxxtmrdbuiplylgbblwrshrmlrkz/Build/Products/Debug/Telegram.app"
+SIGNING_REQUIREMENT = '=designated => identifier "ru.keepcoder.Telegram"'
 
 # ANSI Colors
 BOLD = "\033[1m"
@@ -155,14 +156,24 @@ def main():
     if proc.returncode == 0:
         print(f"\n{BOLD}{GREEN}✓ COMPILATION SUCCEEDED in {format_duration(total_time)} ({total_time:.1f}s){RESET}")
         
-        # Code signing
-        print(f"{CYAN}Signing bundle ad-hoc with codesign...{RESET}")
-        sign_res = subprocess.run(["codesign", "--force", "--deep", "-s", "-", DERIVED_DATA_APP],
-                                  capture_output=True, text=True)
+        # Sign nested code first, then give the main app a stable designated
+        # requirement. This keeps TCC permissions across local rebuilds even
+        # though the executable's CDHash changes.
+        print(f"{CYAN}Signing bundle with a stable local requirement...{RESET}")
+        nested_sign_res = subprocess.run(["codesign", "--force", "--deep", "--timestamp=none", "-s", "-", DERIVED_DATA_APP],
+                                         capture_output=True, text=True)
+        sign_res = subprocess.run(["codesign", "--force", "--timestamp=none", "-s", "-", "--requirements", SIGNING_REQUIREMENT, DERIVED_DATA_APP],
+                                  capture_output=True, text=True) if nested_sign_res.returncode == 0 else nested_sign_res
         if sign_res.returncode == 0:
+            verify_res = subprocess.run(["codesign", "--verify", "--deep", "--strict", DERIVED_DATA_APP],
+                                        capture_output=True, text=True)
+            if verify_res.returncode != 0:
+                print(f"{RED}Signature verification failed: {verify_res.stderr.strip()}{RESET}")
+                return verify_res.returncode
             print(f"{GREEN}✓ Codesign verified.{RESET}")
         else:
-            print(f"{YELLOW}Warning: codesign returned {sign_res.returncode}: {sign_res.stderr.strip()}{RESET}")
+            print(f"{RED}Signing failed: {sign_res.stderr.strip()}{RESET}")
+            return sign_res.returncode
 
         # Keep a real Scopegram.app bundle. Launching a symlink to Telegram.app
         # makes macOS resolve the original bundle name for the Dock label.
