@@ -1,249 +1,238 @@
-name: Release Scopegram
+name: Build and publish Scopegram
 
 on:
   push:
+    branches:
+      - master
     tags:
-      - 'v*'
+      - "v*"
   workflow_dispatch:
     inputs:
-      tag_name:
-        description: 'Release tag (e.g. v1.0.0, leave empty for auto-tag)'
+      tag:
+        description: "Release tag. Leave empty to generate one."
         required: false
-        default: ''
-      configuration:
-        description: 'Build Configuration'
-        required: true
-        type: choice
-        options:
-          - Release
-          - Debug
-        default: 'Release'
-      draft:
-        description: 'Create draft release'
-        required: false
-        type: boolean
-        default: false
+        type: string
       prerelease:
-        description: 'Mark as pre-release'
+        description: "Publish as a prerelease"
         required: false
-        type: boolean
         default: false
+        type: boolean
       precompiled_tag:
-        description: 'Release tag for precompiled core frameworks'
+        description: "Tag containing precompiled-core-macos-arm64.tar.gz"
         required: false
-        default: 'precompiled-latest'
+        default: "precompiled-latest"
+        type: string
+
+concurrency:
+  group: scopegram-release-${{ github.ref }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
 
 jobs:
-  build-and-release:
-    name: Build & Release (arm64)
+  release:
+    name: Build macOS arm64 release
     runs-on: macos-latest
     timeout-minutes: 180
-    permissions:
-      contents: write
 
     steps:
-      - name: Checkout repository
+      - name: Check out sources
         uses: actions/checkout@v4
         with:
+          fetch-depth: 0
           submodules: recursive
-          fetch-depth: 1
 
-      - name: Apply Scopegram patches to submodules
+      - name: Resolve release metadata
+        id: release
+        env:
+          INPUT_TAG: ${{ inputs.tag }}
+          INPUT_PRERELEASE: ${{ inputs.prerelease }}
         run: |
-          if [ -f scripts/patches/telegram-ios-scopegram.patch ]; then
-            echo "Applying Scopegram patch to submodules/telegram-ios..."
-            cd submodules/telegram-ios
-            git apply --check ../../scripts/patches/telegram-ios-scopegram.patch 2>/dev/null && git apply ../../scripts/patches/telegram-ios-scopegram.patch || echo "Patch already applied or skipped"
-            cd ../..
-          fi
-
-      - name: Determine release tag
-        id: tag
-        run: |
-          if [ -n "${{ github.event.inputs.tag_name }}" ]; then
-            TAG="${{ github.event.inputs.tag_name }}"
-          elif [ "${{ github.ref_type }}" = "tag" ]; then
-            TAG="${{ github.ref_name }}"
+          if [[ "$GITHUB_REF_TYPE" == "tag" ]]; then
+            tag="$GITHUB_REF_NAME"
+          elif [[ -n "$INPUT_TAG" ]]; then
+            tag="$INPUT_TAG"
           else
-            TAG="v$(date +'%Y.%m.%d-%H%M')"
+            tag="v$(date -u +'%Y.%m.%d')-${GITHUB_RUN_NUMBER}"
           fi
-          echo "tag=$TAG" >> "$GITHUB_OUTPUT"
-          echo "Release tag: $TAG"
 
-      - name: Install build tools & dependencies
+          if [[ "$tag" != v* ]]; then
+            tag="v$tag"
+          fi
+          if [[ ! "$tag" =~ ^v[0-9]+([.][0-9A-Za-z-]+)*$ ]]; then
+            echo "Invalid release tag: $tag" >&2
+            exit 1
+          fi
+
+          version="${tag#v}"
+          bundle_version="${version%%-*}"
+          if [[ ! "$bundle_version" =~ ^[0-9]+([.][0-9]+){1,2}$ ]]; then
+            echo "The numeric part of the version must contain 2 or 3 components: $bundle_version" >&2
+            exit 1
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          echo "version=$bundle_version" >> "$GITHUB_OUTPUT"
+          echo "prerelease=${INPUT_PRERELEASE:-false}" >> "$GITHUB_OUTPUT"
+          echo "Building Scopegram $tag"
+
+      - name: Apply Scopegram submodule patch
+        run: |
+          patch="scripts/patches/telegram-ios-scopegram.patch"
+          if [[ -f "$patch" ]]; then
+            if git -C submodules/telegram-ios apply --check "../../$patch"; then
+              git -C submodules/telegram-ios apply "../../$patch"
+            else
+              echo "Submodule patch is already present or no longer required."
+            fi
+          fi
+
+      - name: Install build dependencies
         run: |
           brew install cmake ninja meson nasm yasm openssl@3 zlib autoconf libtool automake pkg-config
+          rustup toolchain install stable --profile minimal
+          rustup default stable
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Restore or build precompiled core frameworks
+      - name: Restore precompiled native frameworks
+        id: precompiled
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          PRECOMPILED_TAG: ${{ inputs.precompiled_tag || 'precompiled-latest' }}
         run: |
-          PRECOMPILED_TAG="${{ github.event.inputs.precompiled_tag || 'precompiled-latest' }}"
-          FOUND=0
-
-          echo "==> Checking for precompiled frameworks archive ($PRECOMPILED_TAG)..."
-
-          if gh release download "$PRECOMPILED_TAG" -R "$GITHUB_REPOSITORY" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
-            echo "==> Downloaded precompiled archive from $GITHUB_REPOSITORY"
-            FOUND=1
-          elif gh release download "$PRECOMPILED_TAG" -R "lonestill/scopeGram" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
-            echo "==> Downloaded precompiled archive from lonestill/scopeGram"
-            FOUND=1
-          elif curl -fL "https://github.com/lonestill/scopeGram/releases/download/${PRECOMPILED_TAG}/precompiled-core-macos-arm64.tar.gz" -o "precompiled.tar.gz" 2>/dev/null; then
-            echo "==> Downloaded precompiled archive via direct HTTPS URL"
-            FOUND=1
-          elif gh release download "$PRECOMPILED_TAG" -R "lonestill/telegram-macos" -p "precompiled-core-macos-arm64.tar.gz" -O "precompiled.tar.gz" 2>/dev/null; then
-            echo "==> Downloaded precompiled archive from upstream lonestill/telegram-macos"
-            FOUND=1
-          fi
-
-          if [ "$FOUND" -eq 1 ] && [ -f "precompiled.tar.gz" ]; then
-            echo "==> Extracting precompiled frameworks into repository root..."
-            tar -xzf "precompiled.tar.gz" -C .
-            rm -f "precompiled.tar.gz"
-            echo "==> Precompiled core frameworks successfully restored."
+          archive="$RUNNER_TEMP/precompiled-core-macos-arm64.tar.gz"
+          if gh release download "$PRECOMPILED_TAG" \
+            --repo "$GITHUB_REPOSITORY" \
+            --pattern "precompiled-core-macos-arm64.tar.gz" \
+            --output "$archive"; then
+            tar -xzf "$archive" -C "$GITHUB_WORKSPACE"
+            echo "restored=true" >> "$GITHUB_OUTPUT"
           else
-            echo "==> Precompiled archive not found. Compiling frameworks from source..."
-            export DEVELOPER_DIR="/Applications/Xcode.app/Contents/Developer"
-            export CMAKE_POLICY_VERSION_MINIMUM="3.5"
-            sh scripts/setup_build_env.sh --build
+            echo "Precompiled frameworks were not found; building them from source."
+            echo "restored=false" >> "$GITHUB_OUTPUT"
           fi
 
-      - name: Prepare serialization and API sources
+      - name: Build native frameworks from source
+        if: steps.precompiled.outputs.restored != 'true'
+        env:
+          CMAKE_POLICY_VERSION_MINIMUM: "3.5"
+          DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+        run: sh scripts/setup_build_env.sh --build
+
+      - name: Prepare generated sources
         run: |
           python3 scripts/prepare-telegram-api.py
           python3 scripts/prepare-flat-serialization.py
           sh scripts/sync-headers.sh
-
-      - name: Apply Xcode build fixes
-        run: |
           sh scripts/xcode27.sh apply || true
 
       - name: Build Scopegram
         env:
-          BUILD_CONFIG: ${{ github.event.inputs.configuration || 'Release' }}
           DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+          RELEASE_VERSION: ${{ steps.release.outputs.version }}
         run: |
-          echo "==> Building Scopegram with configuration: $BUILD_CONFIG"
-
-          if [ "$BUILD_CONFIG" = "Release" ] && [ -f "configurations/Stable.xcconfig" ]; then
-            cp "configurations/Stable.xcconfig" "Telegram-Mac/Release.xcconfig"
-          fi
-
-          xcodebuild -workspace "Telegram-Mac.xcworkspace" \
-            -scheme "Telegram" \
-            -configuration "$BUILD_CONFIG" \
+          xcodebuild \
+            -workspace Telegram-Mac.xcworkspace \
+            -scheme Telegram \
+            -configuration Release \
             -destination "platform=macOS,arch=arm64" \
-            -derivedDataPath "./build" \
+            -derivedDataPath "$RUNNER_TEMP/ScopegramDerivedData" \
+            MARKETING_VERSION="$RELEASE_VERSION" \
             CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_IDENTITY="" \
             CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY= \
             COMPILER_INDEX_STORE_ENABLE=NO \
             build
 
-      - name: Locate and bundle Scopegram.app
+      - name: Prepare and sign application
         env:
-          BUILD_CONFIG: ${{ github.event.inputs.configuration || 'Release' }}
+          BUILD_ROOT: ${{ runner.temp }}/ScopegramDerivedData/Build/Products/Release
         run: |
-          APP_DIR="./build/Build/Products/$BUILD_CONFIG"
-
-          if [ -d "$APP_DIR/Telegram.app" ]; then
-            mv "$APP_DIR/Telegram.app" "$APP_DIR/Scopegram.app"
-          fi
-
-          if [ ! -d "$APP_DIR/Scopegram.app" ]; then
-            echo "Error: Scopegram.app not found under $APP_DIR"
-            ls -la "$APP_DIR" || true
+          source_app="$BUILD_ROOT/Telegram.app"
+          if [[ ! -d "$source_app" ]]; then
+            echo "Telegram.app was not produced." >&2
+            find "$BUILD_ROOT" -maxdepth 2 -type d -name "*.app" -print || true
             exit 1
           fi
 
-          cp -R "$APP_DIR/Scopegram.app" ./Scopegram.app
-          echo "==> Scopegram.app ready."
+          ditto "$source_app" Scopegram.app
+          codesign --force --deep --timestamp=none --sign - Scopegram.app
+          codesign --force --timestamp=none --sign - \
+            --requirements '=designated => identifier "ru.keepcoder.Telegram"' \
+            Scopegram.app
+          codesign --verify --deep --strict Scopegram.app
 
-      - name: Ad-hoc code sign application
+          display_name=$(/usr/libexec/PlistBuddy -c "Print :CFBundleDisplayName" Scopegram.app/Contents/Info.plist)
+          if [[ "$display_name" != "Scopegram" ]]; then
+            echo "Unexpected bundle display name: $display_name" >&2
+            exit 1
+          fi
+
+          for resource in \
+            scopegram_developer.tgs \
+            scopegram_supporter.tgs \
+            scopegram_channel.tgs \
+            scopegram_modicon.tgs; do
+            test -s "Scopegram.app/Contents/Resources/$resource"
+          done
+
+      - name: Package release files
         run: |
-          echo "==> Ad-hoc signing Scopegram.app for Apple Silicon execution..."
-          codesign --force --deep -s - ./Scopegram.app
-          codesign --verify --deep --strict --verbose=2 ./Scopegram.app
+          zip_name="Scopegram-macos-arm64.zip"
+          dmg_name="Scopegram-macos-arm64.dmg"
 
-      - name: Package DMG and ZIP
-        run: |
-          echo "==> Creating Scopegram-macos-arm64.zip..."
-          ditto -c -k --sequesterRsrc --keepParent Scopegram.app Scopegram-macos-arm64.zip
+          ditto -c -k --sequesterRsrc --keepParent Scopegram.app "$zip_name"
 
-          echo "==> Creating Scopegram-macos-arm64.dmg..."
-          mkdir -p dmg_root
-          cp -R Scopegram.app dmg_root/
-          ln -s /Applications dmg_root/Applications
-          hdiutil create -volname "Scopegram" -srcfolder dmg_root -ov -format UDZO Scopegram-macos-arm64.dmg
-          rm -rf dmg_root
+          mkdir "$RUNNER_TEMP/ScopegramDmg"
+          ditto Scopegram.app "$RUNNER_TEMP/ScopegramDmg/Scopegram.app"
+          ln -s /Applications "$RUNNER_TEMP/ScopegramDmg/Applications"
+          hdiutil create \
+            -volname Scopegram \
+            -srcfolder "$RUNNER_TEMP/ScopegramDmg" \
+            -format UDZO \
+            -ov \
+            "$dmg_name"
 
-          echo "==> Calculating SHA256 checksums..."
-          shasum -a 256 Scopegram-macos-arm64.dmg Scopegram-macos-arm64.zip > SHA256SUMS.txt
+          shasum -a 256 "$dmg_name" "$zip_name" > SHA256SUMS.txt
           cat SHA256SUMS.txt
 
-      - name: Generate release notes
-        run: |
-          cat <<'EOF' > RELEASE_NOTES.md
-          ## Scopegram for macOS (Apple Silicon arm64)
-
-          ### Highlights & Features:
-          - **View-Once & Self-Destructing Media Unlock**: View-once photos and expiring videos open directly on macOS, play in full resolution, never burn/expire, and can be freely copied or saved.
-          - **Message Edit History**: Tracks full revision logs with visual indicator `изменено (X)` and timestamped history inspector in context menu.
-          - **Anti-Delete Message Protection**: Retains deleted messages with a distinct red `🗑 deleted` visual indicator.
-          - **Ghost Mode & Stealth Privacy**: Read messages and watch stories silently without sending read receipts or online presence.
-          - **Anti-Noforwards & Screenshot Bypass**: Copy text and save media without restrictions from protected channels.
-          - **Peer ID & Phone Number Masking**: Instant Peer ID copying in profiles; phone numbers masked for screen-sharing privacy.
-          - **Call Confirmation**: Prevents accidental voice and video calls.
-          - **No Sponsored Messages**: Zero Telegram ads or promoted posts.
-          - **Dedicated Settings Hub**: Full toggle control under Telegram Settings -> Scopegram Settings.
-
-          ### Installation:
-          1. Download **`Scopegram-macos-arm64.dmg`** (or `Scopegram-macos-arm64.zip`).
-          2. Open the DMG and drag **Scopegram.app** to your **/Applications** folder.
-          3. Because Scopegram is an independent open-source build with ad-hoc signing, macOS Gatekeeper may show a warning on first launch. If prompted, run this command in Terminal to clear the quarantine flag:
-             ```bash
-             xattr -cr /Applications/Scopegram.app
-             ```
-          4. Launch and enjoy!
-          EOF
-
-      - name: Upload workflow artifacts
+      - name: Upload workflow artifact
         uses: actions/upload-artifact@v4
         with:
-          name: Scopegram-macos-arm64
+          name: Scopegram-${{ steps.release.outputs.tag }}-macos-arm64
+          retention-days: 14
+          if-no-files-found: error
           path: |
             Scopegram-macos-arm64.dmg
             Scopegram-macos-arm64.zip
             SHA256SUMS.txt
 
-      - name: Publish GitHub Release
+      - name: Publish GitHub release
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_TAG: ${{ steps.release.outputs.tag }}
+          RELEASE_PRERELEASE: ${{ steps.release.outputs.prerelease }}
         run: |
-          TAG="${{ steps.tag.outputs.tag }}"
-          DRAFT_FLAG=""
-          if [ "${{ github.event.inputs.draft }}" = "true" ]; then
-            DRAFT_FLAG="--draft"
-          fi
-          PRERELEASE_FLAG=""
-          if [ "${{ github.event.inputs.prerelease }}" = "true" ]; then
-            PRERELEASE_FLAG="--prerelease"
-          fi
+          assets=(
+            Scopegram-macos-arm64.dmg
+            Scopegram-macos-arm64.zip
+            SHA256SUMS.txt
+          )
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG exists. Uploading assets..."
-            gh release upload "$TAG" Scopegram-macos-arm64.dmg Scopegram-macos-arm64.zip SHA256SUMS.txt --clobber
+          if gh release view "$RELEASE_TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            gh release upload "$RELEASE_TAG" "${assets[@]}" \
+              --repo "$GITHUB_REPOSITORY" \
+              --clobber
           else
-            echo "Creating release $TAG..."
-            gh release create "$TAG" \
-              Scopegram-macos-arm64.dmg \
-              Scopegram-macos-arm64.zip \
-              SHA256SUMS.txt \
-              --title "Scopegram $TAG" \
-              --notes-file RELEASE_NOTES.md \
-              $DRAFT_FLAG $PRERELEASE_FLAG
+            args=(
+              "$RELEASE_TAG"
+              "${assets[@]}"
+              --repo "$GITHUB_REPOSITORY"
+              --target "$GITHUB_SHA"
+              --title "Scopegram $RELEASE_TAG"
+              --generate-notes
+            )
+            if [[ "$RELEASE_PRERELEASE" == "true" ]]; then
+              args+=(--prerelease)
+            fi
+            gh release create "${args[@]}"
           fi
