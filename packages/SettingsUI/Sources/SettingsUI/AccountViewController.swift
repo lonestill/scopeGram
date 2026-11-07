@@ -366,7 +366,8 @@ private enum AccountInfoEntry<Context: AccountContextProtocol> : TableItemListNo
                 arguments.addAccount(accounts)
             }, thumb: GeneralThumbAdditional(thumb: theme.icons.account_add_account, textInset: 35, thumbInset: 0), inset:NSEdgeInsets(left: 12, right: 12), customTheme: .initialize(theme, background: .clear))
         case let .scopegram(_, viewType):
-            return GeneralInteractedRowItem(initialSize, stableId: stableId, name: "Scopegram", icon: theme.icons.settingsSecurity, activeIcon: theme.icons.settingsSecurityActive, type: .next, viewType: viewType, action: {
+            let scopegramIcon = NSImage(named: "ScopegramSettingsIcon")?.precomposed()
+            return GeneralInteractedRowItem(initialSize, stableId: stableId, name: "Scopegram", icon: scopegramIcon, activeIcon: scopegramIcon, type: .next, viewType: viewType, action: {
                 arguments.presentController(ScopegramSettingsController(context: arguments.context), true)
             }, inset: NSEdgeInsets(left: 12, right: 12), customTheme: .initialize(theme, background: .clear))
         case let .general(_, viewType):
