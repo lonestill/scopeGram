@@ -5,6 +5,8 @@ import SwiftSignalKit
 import InputDataUI
 import GeneralRows
 import TelegramContext
+import TelegramCore
+import Postbox
 import TelegramTheme
 import ColorPalette
 import TelegramUtils
@@ -589,14 +591,14 @@ public func ScopegramLocalBadgesController(context: any AccountContextProtocol) 
     struct State: Equatable {
         var inputId: String
         var selectedKind: LocalTelegramBadgeKind
-        var badges: [(id: Int64, kind: LocalTelegramBadgeKind)]
+        var badges: [(peerId: PeerId, kind: LocalTelegramBadgeKind)]
         
         static func == (lhs: State, rhs: State) -> Bool {
             if lhs.inputId != rhs.inputId || lhs.selectedKind != rhs.selectedKind || lhs.badges.count != rhs.badges.count {
                 return false
             }
             for i in 0..<lhs.badges.count {
-                if lhs.badges[i].id != rhs.badges[i].id || lhs.badges[i].kind != rhs.badges[i].kind {
+                if lhs.badges[i].peerId != rhs.badges[i].peerId || lhs.badges[i].kind != rhs.badges[i].kind {
                     return false
                 }
             }
@@ -607,7 +609,7 @@ public func ScopegramLocalBadgesController(context: any AccountContextProtocol) 
     let initialState = State(
         inputId: "",
         selectedKind: .verified,
-        badges: LocalTelegramBadges.shared.allBadges().sorted(by: { $0.id < $1.id })
+        badges: LocalTelegramBadges.shared.allBadges().sorted(by: { $0.peerId.toInt64() < $1.peerId.toInt64() })
     )
     
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
@@ -617,6 +619,17 @@ public func ScopegramLocalBadgesController(context: any AccountContextProtocol) 
     }
     
     let _id_input_badge_id = InputDataIdentifier("badge_input_id")
+
+    let displayId: (PeerId) -> String = { peerId in
+        let id = peerId.id._internalGetInt64Value()
+        if peerId.namespace == Namespaces.Peer.CloudChannel {
+            return "-100\(id)"
+        } else if peerId.namespace == Namespaces.Peer.CloudGroup {
+            return "-\(id)"
+        } else {
+            return "\(id)"
+        }
+    }
     
     let cycleBadgeKind: () -> Void = {
         updateState { current in
@@ -636,32 +649,39 @@ public func ScopegramLocalBadgesController(context: any AccountContextProtocol) 
     let assignBadgeAction: () -> Void = {
         let rawInput = stateValue.with { $0.inputId }.trimmingCharacters(in: .whitespacesAndNewlines)
         var clean = rawInput
+        let namespace: PeerId.Namespace
         if clean.hasPrefix("-100") {
             clean = String(clean.dropFirst(4))
+            namespace = Namespaces.Peer.CloudChannel
         } else if clean.hasPrefix("-") {
             clean = String(clean.dropFirst(1))
+            namespace = Namespaces.Peer.CloudGroup
+        } else {
+            namespace = Namespaces.Peer.CloudUser
         }
         guard let id = Int64(clean), id > 0 else {
             alert(for: context.window, info: "Введите корректный числовой ID аккаунта или канала.")
             return
         }
         let kind = stateValue.with { $0.selectedKind }
-        LocalTelegramBadges.shared.assign(id: id, kind: kind)
+        let peerId = PeerId(namespace: namespace, id: ._internalFromInt64Value(id))
+        LocalTelegramBadges.shared.assign(peerId: peerId, kind: kind)
         updateState { current in
             var current = current
             current.inputId = ""
-            current.badges = LocalTelegramBadges.shared.allBadges().sorted(by: { $0.id < $1.id })
+            current.badges = LocalTelegramBadges.shared.allBadges().sorted(by: { $0.peerId.toInt64() < $1.peerId.toInt64() })
             return current
         }
-        showModalText(for: context.window, text: "Бейдж '\(kind.title)' успешно назначен для ID \(id)!")
+        showModalText(for: context.window, text: "Бейдж '\(kind.title)' успешно назначен для ID \(displayId(peerId))!")
     }
     
-    let removeBadgeAction: (Int64) -> Void = { targetId in
+    let removeBadgeAction: (PeerId) -> Void = { peerId in
+        let targetId = displayId(peerId)
         verifyAlert(for: context.window, header: "Scopegram", information: "Удалить локальный бейдж для ID \(targetId)?", ok: "Удалить", cancel: "Отмена", successHandler: { _ in
-            LocalTelegramBadges.shared.remove(id: targetId)
+            LocalTelegramBadges.shared.remove(peerId: peerId)
             updateState { current in
                 var current = current
-                current.badges = LocalTelegramBadges.shared.allBadges().sorted(by: { $0.id < $1.id })
+                current.badges = LocalTelegramBadges.shared.allBadges().sorted(by: { $0.peerId.toInt64() < $1.peerId.toInt64() })
                 return current
             }
             showModalText(for: context.window, text: "Бейдж для ID \(targetId) удалён.")
@@ -692,7 +712,7 @@ public func ScopegramLocalBadgesController(context: any AccountContextProtocol) 
             mode: .plain,
             data: InputDataRowData(viewType: .firstItem),
             placeholder: nil,
-            inputPlaceholder: "Enter Account / Channel ID (e.g. 123456789)",
+            inputPlaceholder: "User 123, group -123, channel -100123",
             filter: { text in
                 text.trimmingCharacters(in: CharacterSet(charactersIn: "0123456789-").inverted)
             },
@@ -782,14 +802,14 @@ public func ScopegramLocalBadgesController(context: any AccountContextProtocol) 
                     index: index,
                     value: .none,
                     error: nil,
-                    identifier: InputDataIdentifier("badge_row_\(item.id)"),
+                        identifier: InputDataIdentifier("badge_row_\(item.peerId.toInt64())"),
                     data: .init(
-                        name: "ID: \(item.id)",
+                        name: "ID: \(displayId(item.peerId))",
                         color: theme.colors.text,
                         type: .contextColored(item.kind.title, badgeColor),
                         viewType: viewType,
                         action: {
-                            removeBadgeAction(item.id)
+                            removeBadgeAction(item.peerId)
                         }
                     )
                 ))
@@ -837,7 +857,7 @@ public func ScopegramLocalBadgesController(context: any AccountContextProtocol) 
         ))
         index += 1
         
-        entries.append(.desc(sectionId: sectionId, index: index, text: .plain("Official Developer (gold) and Supporter (violet) badges are managed strictly by the developer via badges.json in the GitHub repository. Clicking an official badge in chat displays an interactive verification card."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
+        entries.append(.desc(sectionId: sectionId, index: index, text: .plain("Official Developer (gold) and Supporter (violet) badges are managed by the developer via badges.json in the GitHub repository."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)))
         index += 1
         sectionId += 1
         entries.append(.sectionId(sectionId, type: .normal))

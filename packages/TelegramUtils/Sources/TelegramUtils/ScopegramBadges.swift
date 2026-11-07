@@ -73,25 +73,21 @@ public final class ScopegramBadges {
     }
     
     public func badge(for peer: Peer) -> ScopegramBadgeType? {
-        return badge(forId: peer.id.id._internalGetInt64Value())
+        return badge(for: peer.id)
     }
     
     public func badge(for peerId: PeerId) -> ScopegramBadgeType? {
-        return badge(forId: peerId.id._internalGetInt64Value())
-    }
-    
-    public func badge(forId rawId: Int64) -> ScopegramBadgeType? {
         lock.lock()
         defer { lock.unlock() }
         
-        let id = abs(rawId)
-        if developerIds.contains(id) {
+        let id = abs(peerId.id._internalGetInt64Value())
+        if peerId.namespace == Namespaces.Peer.CloudUser, developerIds.contains(id) {
             return .developer
         }
-        if officialIds.contains(id) {
+        if peerId.namespace == Namespaces.Peer.CloudChannel, officialIds.contains(id) {
             return .official
         }
-        if supporterIds.contains(id) {
+        if peerId.namespace == Namespaces.Peer.CloudUser, supporterIds.contains(id) {
             return .supporter
         }
         return nil
@@ -183,95 +179,74 @@ public enum LocalTelegramBadgeKind: String, Codable, CaseIterable {
 
 public final class LocalTelegramBadges {
     public static let shared = LocalTelegramBadges()
-    
+
+    private struct StoredBadge: Codable {
+        let peerId: PeerId
+        let kind: LocalTelegramBadgeKind
+    }
+
+    private let storageKey = "scopegram.local_badges.v2"
     private let verifiedKey = "scopegram.local_badges.verified"
     private let scamKey = "scopegram.local_badges.scam"
     private let fakeKey = "scopegram.local_badges.fake"
-    
-    private var verifiedIds: Set<Int64> = []
-    private var scamIds: Set<Int64> = []
-    private var fakeIds: Set<Int64> = []
-    
+
+    private var badges: [PeerId: LocalTelegramBadgeKind] = [:]
     private let lock = NSLock()
-    
+
     private init() {
         load()
     }
-    
+
     private func load() {
         let ud = UserDefaults.standard
-        if let arr = ud.stringArray(forKey: verifiedKey) {
-            verifiedIds = Set(arr.compactMap { Int64($0) })
+        if let data = ud.data(forKey: storageKey), let stored = try? JSONDecoder().decode([StoredBadge].self, from: data) {
+            badges = Dictionary(uniqueKeysWithValues: stored.map { ($0.peerId, $0.kind) })
+            return
         }
-        if let arr = ud.stringArray(forKey: scamKey) {
-            scamIds = Set(arr.compactMap { Int64($0) })
-        }
-        if let arr = ud.stringArray(forKey: fakeKey) {
-            fakeIds = Set(arr.compactMap { Int64($0) })
+
+        migrateLegacy(ud.stringArray(forKey: verifiedKey), kind: .verified)
+        migrateLegacy(ud.stringArray(forKey: scamKey), kind: .scam)
+        migrateLegacy(ud.stringArray(forKey: fakeKey), kind: .fake)
+        save()
+    }
+
+    private func migrateLegacy(_ values: [String]?, kind: LocalTelegramBadgeKind) {
+        for id in values?.compactMap(Int64.init) ?? [] {
+            let peerId = PeerId(namespace: Namespaces.Peer.CloudUser, id: ._internalFromInt64Value(abs(id)))
+            badges[peerId] = kind
         }
     }
-    
+
     private func save() {
-        let ud = UserDefaults.standard
-        ud.set(verifiedIds.map { String($0) }, forKey: verifiedKey)
-        ud.set(scamIds.map { String($0) }, forKey: scamKey)
-        ud.set(fakeIds.map { String($0) }, forKey: fakeKey)
-    }
-    
-    public func isVerified(id: Int64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return verifiedIds.contains(abs(id))
-    }
-    
-    public func isScam(id: Int64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return scamIds.contains(abs(id))
-    }
-    
-    public func isFake(id: Int64) -> Bool {
-        lock.lock()
-        defer { lock.unlock() }
-        return fakeIds.contains(abs(id))
-    }
-    
-    public func assign(id: Int64, kind: LocalTelegramBadgeKind) {
-        lock.lock()
-        defer { lock.unlock() }
-        let targetId = abs(id)
-        verifiedIds.remove(targetId)
-        scamIds.remove(targetId)
-        fakeIds.remove(targetId)
-        
-        switch kind {
-        case .verified:
-            verifiedIds.insert(targetId)
-        case .fake:
-            fakeIds.insert(targetId)
-        case .scam:
-            scamIds.insert(targetId)
+        let stored = badges.map { StoredBadge(peerId: $0.key, kind: $0.value) }
+        if let data = try? JSONEncoder().encode(stored) {
+            UserDefaults.standard.set(data, forKey: storageKey)
         }
-        save()
     }
-    
-    public func remove(id: Int64) {
+
+    public func badge(for peerId: PeerId) -> LocalTelegramBadgeKind? {
         lock.lock()
         defer { lock.unlock() }
-        let targetId = abs(id)
-        verifiedIds.remove(targetId)
-        scamIds.remove(targetId)
-        fakeIds.remove(targetId)
-        save()
+        return badges[peerId]
     }
-    
-    public func allBadges() -> [(id: Int64, kind: LocalTelegramBadgeKind)] {
+
+    public func assign(peerId: PeerId, kind: LocalTelegramBadgeKind) {
         lock.lock()
         defer { lock.unlock() }
-        var list: [(id: Int64, kind: LocalTelegramBadgeKind)] = []
-        for id in verifiedIds { list.append((id, .verified)) }
-        for id in fakeIds { list.append((id, .fake)) }
-        for id in scamIds { list.append((id, .scam)) }
-        return list
+        badges[peerId] = kind
+        save()
+    }
+
+    public func remove(peerId: PeerId) {
+        lock.lock()
+        defer { lock.unlock() }
+        badges.removeValue(forKey: peerId)
+        save()
+    }
+
+    public func allBadges() -> [(peerId: PeerId, kind: LocalTelegramBadgeKind)] {
+        lock.lock()
+        defer { lock.unlock() }
+        return badges.map { ($0.key, $0.value) }
     }
 }

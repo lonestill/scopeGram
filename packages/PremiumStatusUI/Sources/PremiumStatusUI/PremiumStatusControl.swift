@@ -12,6 +12,7 @@ import TelegramUtils
 import TelegramTheme
 import InAppSettings
 import InlineStickerLayer
+import LocalAnimations
 
 
 public final class StarsEffectLayer: SimpleLayer {
@@ -108,18 +109,6 @@ protocol PremiumStatusRenderHost: AnyObject {
     func statusDidUpdate()
 }
 
-private func generateScopegramBadge(size: NSSize, background: NSColor, checkmark: NSColor, left: Bool) -> CGImage? {
-    return generateImage(size, contextGenerator: { size, ctx in
-        ctx.clear(CGRect(origin: .zero, size: size))
-        let template = TelegramThemeHooks.shared.image(left ? .iconVerifiedTelegram : .iconVerifyDialog)
-        let checkImage = template.precomposed(checkmark)
-        ctx.setFillColor(background.cgColor)
-        let inset: CGFloat = size.width >= 20 ? 4 : 3
-        ctx.fillEllipse(in: CGRect(x: inset, y: inset, width: size.width - inset * 2, height: size.height - inset * 2))
-        ctx.draw(checkImage, in: CGRect(origin: .zero, size: size))
-    })
-}
-
 final class PremiumStatusRenderer {
     private final class StatusConfiguration {
         let account: ObjectIdentifier
@@ -163,6 +152,7 @@ final class PremiumStatusRenderer {
     private weak var host: PremiumStatusRenderHost?
     private(set) var imageLayer: SimpleLayer?
     private(set) var animateLayer: InlineStickerItemLayer?
+    private(set) var scopegramLayer: InlineStickerItemLayer?
     private var statusConfiguration: StatusConfiguration?
     private var statusSelected: Bool? = nil
     private(set) var starsLayer: StarsEffectLayer?
@@ -174,7 +164,11 @@ final class PremiumStatusRenderer {
     }
 
     var hasAnimatedContent: Bool {
-        return animateLayer != nil || starsLayer != nil
+        return animateLayer != nil || scopegramLayer != nil || starsLayer != nil
+    }
+
+    var scopegramFrame: NSRect? {
+        return scopegramLayer?.frame
     }
 
     private func focus(_ size: NSSize) -> NSRect {
@@ -193,6 +187,15 @@ final class PremiumStatusRenderer {
             var rect = focus(animateLayer.frame.size)
             rect.origin.x = offset
             animateLayer.frame = rect
+            offset = rect.maxX + 2
+        }
+        if let scopegramLayer = self.scopegramLayer {
+            var rect = focus(scopegramLayer.frame.size)
+            // The host already reserves the badge width. Pinning the badge to
+            // the trailing edge keeps a stable 2 pt gap from the native status
+            // and avoids inheriting the expanded host width from animateLayer.
+            rect.origin.x = max(0, (host?.statusHostSize.width ?? 0) - rect.width)
+            scopegramLayer.frame = rect
         }
     }
 
@@ -208,17 +211,19 @@ final class PremiumStatusRenderer {
         }
         host.statusHostLayer?.opacity = color != nil && peer.emojiStatus != nil ? 0.4 : 1
 
-        let peerRawId = peer.id.id._internalGetInt64Value()
-        let isLocalVerified = LocalTelegramBadges.shared.isVerified(id: peerRawId)
-        let isLocalScam = LocalTelegramBadges.shared.isScam(id: peerRawId)
-        let isLocalFake = LocalTelegramBadges.shared.isFake(id: peerRawId)
+        let localBadge = LocalTelegramBadges.shared.badge(for: peer.id)
+        let isLocalVerified = localBadge == .verified
+        let isLocalScam = localBadge == .scam
+        let isLocalFake = localBadge == .fake
         
         let isVerified = peer.isVerified || isLocalVerified
         let isScam = peer.isScam || isLocalScam
         let isFake = peer.isFake || isLocalFake
         let scopegramBadge = ScopegramBadges.shared.badge(for: peer)
+        let scopegramReservedWidth: CGFloat = scopegramBadge != nil && !left ? (isBig ? 22 : 18) : 0
+        let nativeStatusSize = NSMakeSize(max(0, host.statusHostSize.width - scopegramReservedWidth), host.statusHostSize.height)
 
-        if (isFake || isScam || peer.isPremium || isVerified || scopegramBadge != nil) && !left, ((peer.isPremium && peer.emojiStatus == nil) || !peer.isPremium || isFake || isScam || isVerified || scopegramBadge != nil) && !left  {
+        if (isFake || isScam || peer.isPremium || isVerified) && !left, ((peer.isPremium && peer.emojiStatus == nil) || !peer.isPremium || isFake || isScam || isVerified) && !left  {
 
             let current: SimpleLayer
             if let layer = self.imageLayer {
@@ -231,19 +236,7 @@ final class PremiumStatusRenderer {
             }
             let image: CGImage?
             
-            if let badge = scopegramBadge {
-                let badgeSize = isBig ? NSMakeSize(20, 20) : NSMakeSize(16, 16)
-                switch badge {
-                case .developer, .official:
-                    let goldBg = NSColor(red: 0.98, green: 0.72, blue: 0.05, alpha: 1.0)
-                    let goldUnder = theme.colors.underSelectedColor
-                    image = isSelected ? generateScopegramBadge(size: badgeSize, background: goldUnder, checkmark: goldBg, left: left) : generateScopegramBadge(size: badgeSize, background: goldBg, checkmark: .white, left: left)
-                case .supporter:
-                    let supBg = NSColor(red: 0.58, green: 0.35, blue: 0.96, alpha: 1.0)
-                    let supUnder = theme.colors.underSelectedColor
-                    image = isSelected ? generateScopegramBadge(size: badgeSize, background: supUnder, checkmark: supBg, left: left) : generateScopegramBadge(size: badgeSize, background: supBg, checkmark: .white, left: left)
-                }
-            } else if isVerified {
+            if isVerified {
                 image = isSelected ? (left ? theme.icons.verify_dialog_active_left : theme.icons.verifyDialogActive) : (left ? theme.icons.verify_dialog_left : theme.icons.verifyDialog)
             } else if isScam {
                 image = isSelected ? theme.icons.scamActive : theme.icons.scam
@@ -321,7 +314,7 @@ final class PremiumStatusRenderer {
             
             if let layer = self.animateLayer, layer.fileId == fileId,
                layer.file != nil || !layer.hasFileResolutionResult,
-               self.statusConfiguration?.matches(account: account, inlinePacksContext: inlinePacksContext, size: host.statusHostSize, loops: loops, isSelected: isSelected, color: color, file: layer.file) == true {
+               self.statusConfiguration?.matches(account: account, inlinePacksContext: inlinePacksContext, size: nativeStatusSize, loops: loops, isSelected: isSelected, color: color, file: layer.file) == true {
                 current = layer
                 if isDefaultStatusesPackId(layer.file?.emojiReference), color != nil {
                     host.statusHostLayer?.opacity = 0.4
@@ -343,7 +336,7 @@ final class PremiumStatusRenderer {
                     performSublayerRemoval(animateLayer, animated: animated, scale: true)
                     self.animateLayer = nil
                 }
-                current = InlineStickerItemLayer(account: account, inlinePacksContext: inlinePacksContext, emoji: .init(fileId: fileId, file: nil, emoji: ""), size: host.statusHostSize, playPolicy: loops ? .loop : .playCount(2), checkStatus: true, getColors: getColors)
+                current = InlineStickerItemLayer(account: account, inlinePacksContext: inlinePacksContext, emoji: .init(fileId: fileId, file: nil, emoji: ""), size: nativeStatusSize, playPolicy: loops ? .loop : .playCount(2), checkStatus: true, getColors: getColors)
                 
                 current.fileDidUpdate = { [weak host] file in
                     guard let host else {
@@ -360,7 +353,7 @@ final class PremiumStatusRenderer {
                 current.stopped = previousStopped
                 current.superview = host.statusVisibilityView
                 self.animateLayer = current
-                self.statusConfiguration = StatusConfiguration(account: account, inlinePacksContext: inlinePacksContext, size: host.statusHostSize, loops: loops, isSelected: isSelected, color: color)
+                self.statusConfiguration = StatusConfiguration(account: account, inlinePacksContext: inlinePacksContext, size: nativeStatusSize, loops: loops, isSelected: isSelected, color: color)
                 host.statusHostLayer?.addSublayer(current)
                 
                 if animated {
@@ -384,6 +377,34 @@ final class PremiumStatusRenderer {
             performSublayerRemoval(animateLayer, animated: animated)
             self.animateLayer = nil
             self.statusConfiguration = nil
+        }
+
+        if let scopegramBadge, !left {
+            let sticker: LocalAnimatedSticker
+            switch scopegramBadge {
+            case .developer:
+                sticker = .scopegram_developer
+            case .official:
+                sticker = .scopegram_channel
+            case .supporter:
+                sticker = .scopegram_supporter
+            }
+            let file = sticker.file
+            let badgeSize = isBig ? NSMakeSize(20, 20) : NSMakeSize(16, 16)
+            if scopegramLayer?.fileId != file.fileId.id {
+                if let scopegramLayer {
+                    scopegramLayer.isPlayable = false
+                    performSublayerRemoval(scopegramLayer, animated: animated, scale: true)
+                }
+                let layer = InlineStickerItemLayer(account: account, file: file, size: badgeSize, playPolicy: .playCount(1), ignorePreview: true, synchronyous: true)
+                layer.superview = host.statusVisibilityView
+                scopegramLayer = layer
+                host.statusHostLayer?.addSublayer(layer)
+            }
+        } else if let scopegramLayer {
+            scopegramLayer.isPlayable = false
+            performSublayerRemoval(scopegramLayer, animated: animated, scale: true)
+            self.scopegramLayer = nil
         }
         
         if let status = peer.emojiStatus, case let .starGift(_, _, _, _, _, innerColor, _, _, _) = status.content, !left {
@@ -435,6 +456,9 @@ final class PremiumStatusRenderer {
         if let layer = self.animateLayer, layer.superview != nil {
             layer.isPlayable = NSIntersectsRect(layer.frame, visibleRect) && isKeyWindow && !lite
         }
+        if let layer = self.scopegramLayer, layer.superview != nil {
+            layer.isPlayable = NSIntersectsRect(layer.frame, visibleRect) && isKeyWindow && !lite
+        }
         if let starsLayer = self.starsLayer {
             starsLayer.isPlaying = NSIntersectsRect(starsLayer.frame, visibleRect) && isKeyWindow && !lite
         }
@@ -443,11 +467,22 @@ final class PremiumStatusRenderer {
 
 public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
     private lazy var renderer = PremiumStatusRenderer(host: self)
+    private var scopegramBadge: ScopegramBadgeType?
+    private let scopegramHitControl = Control(frame: .zero)
 
     public required init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         userInteractionEnabled = false
         layer?.masksToBounds = false
+        scopegramHitControl.userInteractionEnabled = true
+        scopegramHitControl.isHidden = true
+        scopegramHitControl.set(handler: { [weak self] _ in
+            guard let self, let badge = self.scopegramBadge, let window = self.window as? Window else {
+                return
+            }
+            showModalText(for: window, text: badge.description, title: badge.title)
+        }, for: .Click)
+        addSubview(scopegramHitControl)
     }
     
     public required init?(coder: NSCoder) {
@@ -471,23 +506,22 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
     public override func layout() {
         super.layout()
         renderer.layout()
+        if let frame = renderer.scopegramFrame, scopegramBadge != nil {
+            scopegramHitControl.frame = frame
+            scopegramHitControl.isHidden = false
+        } else {
+            scopegramHitControl.isHidden = true
+        }
     }
     
     public func set(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, color: NSColor?, isSelected: Bool, isBig: Bool, animated: Bool, playTwice: Bool = true, isLite: Bool, autoupdate: Bool = true) {
         renderer.set(peer, account: account, inlinePacksContext: inlinePacksContext, left: left, color: color, isSelected: isSelected, isBig: isBig, animated: animated, playTwice: playTwice, isLite: isLite, autoupdate: autoupdate)
-        
-        if let badge = ScopegramBadges.shared.badge(for: peer) {
-            self.userInteractionEnabled = true
-            self.appTooltip = badge.title
-            self.set(handler: { [weak self] _ in
-                guard let self = self, let window = self.window as? Window else { return }
-                showModalText(for: window, text: badge.description, title: badge.title)
-            }, for: .Click)
-        } else {
-            self.userInteractionEnabled = false
-            self.appTooltip = nil
-            self.removeAllHandlers()
-        }
+
+        let badge = ScopegramBadges.shared.badge(for: peer)
+        scopegramBadge = badge
+        scopegramHitControl.appTooltip = badge?.title
+        scopegramHitControl.isHidden = badge == nil
+        needsLayout = true
     }
     
     @objc public func updateAnimatableContent() -> Void {
@@ -525,8 +559,7 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
     
     public static func control(_ peer: Peer, account: Account, inlinePacksContext: InlineStickersContext?, left: Bool, isSelected: Bool, isBig: Bool = false, playTwice: Bool = false, color: NSColor? = nil, cached: PremiumStatusControl?, animated: Bool, autoupdate: Bool = true) -> PremiumStatusControl? {
         var current: PremiumStatusControl? = nil
-        let peerRawId = peer.id.id._internalGetInt64Value()
-        let hasLocal = LocalTelegramBadges.shared.isVerified(id: peerRawId) || LocalTelegramBadges.shared.isScam(id: peerRawId) || LocalTelegramBadges.shared.isFake(id: peerRawId)
+        let hasLocal = LocalTelegramBadges.shared.badge(for: peer.id) != nil
         let hasScopegram = ScopegramBadges.shared.badge(for: peer) != nil
         if (peer.isVerified || peer.isScam || peer.isFake || peer.isPremium || peer.emojiStatus != nil || hasLocal || hasScopegram) && !left || (left && peer.verificationIconFileId != nil) {
             current = cached ?? PremiumStatusControl(frame: .zero)
@@ -537,8 +570,7 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
     }
     
     public static func hasControl(_ peer: Peer, left: Bool) -> Bool {
-        let peerRawId = peer.id.id._internalGetInt64Value()
-        let hasLocal = LocalTelegramBadges.shared.isVerified(id: peerRawId) || LocalTelegramBadges.shared.isScam(id: peerRawId) || LocalTelegramBadges.shared.isFake(id: peerRawId)
+        let hasLocal = LocalTelegramBadges.shared.badge(for: peer.id) != nil
         let hasScopegram = ScopegramBadges.shared.badge(for: peer) != nil
         if (hasScopegram || hasLocal) && !left {
             return true
@@ -547,10 +579,10 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
     }
     public static func controlSize(_ peer: Peer, _ isBig: Bool, left: Bool) -> NSSize? {
         if hasControl(peer, left: left) {
-            let peerRawId = peer.id.id._internalGetInt64Value()
-            let isScam = peer.isScam || LocalTelegramBadges.shared.isScam(id: peerRawId)
-            let isFake = peer.isFake || LocalTelegramBadges.shared.isFake(id: peerRawId)
-            let isVerified = peer.isVerified || LocalTelegramBadges.shared.isVerified(id: peerRawId)
+            let localBadge = LocalTelegramBadges.shared.badge(for: peer.id)
+            let isScam = peer.isScam || localBadge == .scam
+            let isFake = peer.isFake || localBadge == .fake
+            let isVerified = peer.isVerified || localBadge == .verified
             
             var addition: NSSize = .zero
             if isScam || isFake {
@@ -558,6 +590,9 @@ public final class PremiumStatusControl : Control, PremiumStatusRenderHost {
             }
             if isVerified && peer.emojiStatus != nil, !left {
                 addition.width += 18
+            }
+            if ScopegramBadges.shared.badge(for: peer) != nil, !left {
+                addition.width += (isBig ? 22 : 18)
             }
             return isBig ? NSMakeSize(20 + addition.width, 20 + addition.height) : NSMakeSize(16 + addition.width, 16 + addition.height)
         } else {
