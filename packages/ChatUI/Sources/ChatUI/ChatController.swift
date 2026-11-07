@@ -6995,6 +6995,11 @@ open class ChatController<Context: AccountContextProtocol>: TelegramGenericViewC
         chatInteraction.sendCommand = { [weak self] command in
             let deferredSendAction = self?.chatInteraction.captureDeferredSendAction()
             if let strongSelf = self, let peer = strongSelf.chatInteraction.peer, peer.canSendMessage(strongSelf.mode.isThreadMode, threadData: strongSelf.chatInteraction.presentation.threadInfo, cachedData: strongSelf.chatInteraction.presentation.cachedData) {
+                if command.command.text.hasPrefix("fake") {
+                    let formatted = "/" + command.command.text.replacingOccurrences(of: "_", with: " ") + " "
+                    strongSelf.chatInteraction.updateInput(with: formatted)
+                    return
+                }
                 func apply(_ controller: ChatController, atDate: Date?, repeatPeriod: Int32?) {
                     var commandText = "/" + command.command.text
                     if controller.chatInteraction.peerId.namespace != Namespaces.Peer.CloudUser, let addressName = command.peer.addressName, !addressName.isEmpty {

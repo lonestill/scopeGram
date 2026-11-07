@@ -2711,6 +2711,9 @@ public class ChatRowItem: TableRowItem {
             let formatter = DateSelectorUtil.chatFullDateFormatter
             //
             var fullDate: String = message.timestamp == scheduleWhenOnlineTimestamp ? "" : formatter.string(from: Date(timeIntervalSince1970: TimeInterval(message.timestamp) - context.timeDifference))
+            if let detection = ChatMediaPlatformDetector.detect(for: message) {
+                fullDate = "\(fullDate)\nSender Client: \(detection.platform.rawValue) (\(detection.detail))"
+            }
             
             let threadId: Int64? = chatInteraction.chatLocation.threadId
             

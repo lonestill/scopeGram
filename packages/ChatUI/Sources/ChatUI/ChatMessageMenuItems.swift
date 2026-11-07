@@ -1161,6 +1161,23 @@ public func chatMenuItems(for message: Message, entry: ChatHistoryEntry?, textLa
             secondBlock.append(historyItem)
         }
         
+        if let detection = ChatMediaPlatformDetector.detect(for: data.message) {
+            let infoText = "Клиент: \(detection.platform.rawValue)\nСигнатура: \(detection.detail)"
+            let clientItem = ContextMenuItem("Клиент: \(detection.platform.rawValue)", handler: {
+                copyToClipboard(infoText)
+            }, itemImage: MenuAnimation.menu_show_info.value)
+            
+            let submenu = ContextMenu()
+            submenu.addItem(ContextMenuItem(detection.detail, handler: {
+                copyToClipboard(detection.detail)
+            }))
+            submenu.addItem(ContextMenuItem("Скопировать информацию", handler: {
+                copyToClipboard(infoText)
+            }, itemImage: MenuAnimation.menu_copy.value))
+            clientItem.submenu = submenu
+            secondBlock.append(clientItem)
+        }
+        
         if let media = data.message.media.first as? TelegramMediaTodo {
             let optionsLimit = Int(context.appConfiguration.getGeneralValue("todo_items_max", orElse: 30))
             if data.message.author?.id == context.peerId || media.flags.contains(.othersCanAppend), media.items.count < optionsLimit {

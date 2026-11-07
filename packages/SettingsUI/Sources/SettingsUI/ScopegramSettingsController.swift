@@ -389,10 +389,14 @@ public func ScopegramMediaSettingsController(context: any AccountContextProtocol
     
     struct State: Equatable {
         var confirmCalls: Bool
+        var detectMediaClient: Bool
     }
     
     let ud = UserDefaults.standard
-    let initialState = State(confirmCalls: ud.bool(forKey: "scopegram.confirmCalls") || ud.bool(forKey: "chargedGram.confirmCalls"))
+    let initialState = State(
+        confirmCalls: ud.bool(forKey: "scopegram.confirmCalls") || ud.bool(forKey: "chargedGram.confirmCalls"),
+        detectMediaClient: ud.object(forKey: "scopegram.detectMediaClient") as? Bool ?? true
+    )
     
     let statePromise = ValuePromise(initialState, ignoreRepeated: true)
     let stateValue = Atomic(value: initialState)
@@ -410,6 +414,15 @@ public func ScopegramMediaSettingsController(context: any AccountContextProtocol
         }
     }
     
+    let toggleDetectMediaClient: () -> Void = {
+        updateState { current in
+            var current = current
+            current.detectMediaClient = !current.detectMediaClient
+            UserDefaults.standard.set(current.detectMediaClient, forKey: "scopegram.detectMediaClient")
+            return current
+        }
+    }
+    
     let signal = statePromise.get() |> deliverOnPrepareQueue |> map { state in
         let entries: [InputDataEntry] = [
             .sectionId(0, type: .normal),
@@ -422,7 +435,18 @@ public func ScopegramMediaSettingsController(context: any AccountContextProtocol
                 action: toggleCalls
             )),
             .desc(sectionId: 0, index: 2, text: .plain("Prompts a confirmation dialog before initiating audio or video calls to prevent accidental dialing."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)),
-            .sectionId(1, type: .normal)
+            
+            .sectionId(1, type: .normal),
+            .desc(sectionId: 1, index: 3, text: .plain("MEDIA CLIENT INTELLIGENCE"), data: .init(color: theme.colors.listGrayText, viewType: .textTopItem)),
+            .general(sectionId: 1, index: 4, value: .none, error: nil, identifier: InputDataIdentifier("media_client_detect"), data: .init(
+                name: "Media Client Detector",
+                color: theme.colors.text,
+                type: .switchable(state.detectMediaClient),
+                viewType: .singleItem,
+                action: toggleDetectMediaClient
+            )),
+            .desc(sectionId: 1, index: 5, text: .plain("Identifies the sender's operating system (iOS, Android, Desktop, Web) from incoming voice messages and photos using waveform and display signatures."), data: .init(color: theme.colors.listGrayText, viewType: .textBottomItem)),
+            .sectionId(2, type: .normal)
         ]
         return InputDataSignalValue(entries: entries)
     }

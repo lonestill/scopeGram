@@ -255,8 +255,10 @@ private func makeInlineResult(_ inputQuery: ChatPresentationInputQuery, chatPres
     case let .command(query):
         let normalizedQuery = query.lowercased()
 
-
         if let peer = chatPresentationInterfaceState.peer {
+            let commandPeer = chatPresentationInterfaceState.accountPeer ?? peer
+            let localCommands = scopegramClientCommands(for: commandPeer, query: normalizedQuery)
+
             if peer.isUser, !peer.isBot {
                 
                 switch chatPresentationInterfaceState.chatMode {
@@ -274,11 +276,21 @@ private func makeInlineResult(_ inputQuery: ChatPresentationInputQuery, chatPres
                             let normalized = item.shortcut.lowercased()
                             return normalized.hasPrefix(normalizedQuery)
                         })
-                        return { _ in return .shortcut(found, "/\(normalizedQuery)") }
+                        if !found.isEmpty {
+                            return { _ in return .shortcut(found, "/\(normalizedQuery)") }
+                        } else if !localCommands.isEmpty {
+                            return { _ in return .commands(localCommands) }
+                        } else {
+                            return { _ in return nil }
+                        }
                     }
                     return (inputQuery, signal |> then(signal))
                 } else {
-                    return (nil, .single({ _ in return nil }))
+                    if !localCommands.isEmpty {
+                        return (inputQuery, .single({ _ in return .commands(localCommands) }))
+                    } else {
+                        return (nil, .single({ _ in return nil }))
+                    }
                 }
             } else {
                 var signal: Signal<(ChatPresentationInputQueryResult?) -> ChatPresentationInputQueryResult?, NoError> = .complete()
@@ -298,7 +310,10 @@ private func makeInlineResult(_ inputQuery: ChatPresentationInputQuery, chatPres
                             }
                             return false
                         }
-                        let sortedCommands = filteredCommands.map { ChatInputCommand(peer: $0.peer, command: $0.command) }
+                        let sortedCommands = localCommands + filteredCommands.map { ChatInputCommand(peer: $0.peer, command: $0.command) }
+                        if sortedCommands.isEmpty {
+                            return { _ in return nil }
+                        }
                         return { _ in return .commands(sortedCommands) }
                 }
                 

@@ -101,19 +101,19 @@ restore_deployment_target() {
 
 relax_telegram_core_warnings() {
     perl -0pi -e '
-        s/swiftSettings: \[\.unsafeFlags\(\["-warnings-as-errors"\]\)\]/swiftSettings: [\n                .unsafeFlags([\n                    "-warnings-as-errors",\n                    "-Wwarning", "ImplicitStrongCapture"\n                ])\n            ]/
-            unless /ImplicitStrongCapture/;
+        s/swiftSettings: \[\.unsafeFlags\(\["-warnings-as-errors"\]\)\]/swiftSettings: []/
+            unless /swiftSettings: \[\]/;
     ' "$2"
-    if ! grep -q ImplicitStrongCapture "$2"; then
+    if grep -q "warnings-as-errors" "$2"; then
         fail "unexpected layout, edit by hand: $1"
     fi
 }
 
 restore_telegram_core_warnings() {
     perl -0pi -e '
-        s/swiftSettings: \[\s*\.unsafeFlags\(\[\s*"-warnings-as-errors",\s*"-Wwarning",\s*"ImplicitStrongCapture"\s*\]\)\s*\]/swiftSettings: [.unsafeFlags(["-warnings-as-errors"])]/;
+        s/swiftSettings: \[\]/swiftSettings: [.unsafeFlags(["-warnings-as-errors"])]/;
     ' "$2"
-    if grep -q ImplicitStrongCapture "$2"; then
+    if ! grep -q "warnings-as-errors" "$2"; then
         fail "unexpected layout, restore by hand: $1"
     fi
 }
